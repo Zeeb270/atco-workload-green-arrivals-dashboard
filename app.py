@@ -294,8 +294,20 @@ with tab1:
 # Tab 2
 # -----------------------------
 with tab2:
-    st.subheader("Prototype Workload Prediction")
-        st.subheader("3-Minute Traffic-Complexity Features")
+    st.subheader("Machine-Learning Workload Prediction")
+
+    st.markdown(
+        f"""
+        <div class="section-card">
+        Current model: <b>{model_choice}</b><br>
+        Estimated workload score: <b>{workload_score:.2f}</b><br>
+        Predicted workload level: <span class="{workload_class}">{workload_label}</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.subheader("3-Minute Traffic-Complexity Features")
     st.dataframe(features_df, use_container_width=True)
 
     fig_window_workload = px.line(
@@ -313,51 +325,37 @@ with tab2:
     )
     st.plotly_chart(fig_window_workload, use_container_width=True)
 
-    st.markdown(
-        f"""
-        <div class="section-card">
-        Current prototype model: <b>{model_choice}</b><br>
-        Estimated workload score: <b>{workload_score:.2f}</b><br>
-        Predicted workload level: <span class="{workload_class}">{workload_label}</span>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    st.subheader("Model Performance")
 
-    workload_df = pd.DataFrame(
-        {
-            "feature": [
-                "Number of aircraft",
-                "Speed variability",
-                "Altitude variability",
-                "Traffic scenario factor"
-            ],
-            "importance_proxy": [
-                n_aircraft,
-                round(df["speed_kt"].std(), 2),
-                round(df["altitude_ft"].std() / 1000, 2),
-                {"Sample traffic": 1, "Light": 0.7, "Moderate": 1.0, "Heavy": 1.4}[traffic_mode]
-            ]
-        }
-    )
+    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
 
-    fig_workload = px.bar(
-        workload_df,
-        x="feature",
-        y="importance_proxy",
-        title="Prototype Workload Drivers"
+    metric_col1.metric("Accuracy", f"{ml_metrics['accuracy']:.3f}")
+    metric_col2.metric("Macro Precision", f"{ml_metrics['macro_precision']:.3f}")
+    metric_col3.metric("Macro Recall", f"{ml_metrics['macro_recall']:.3f}")
+    metric_col4.metric("Macro F1", f"{ml_metrics['macro_f1']:.3f}")
+
+    st.caption(ml_metrics["evaluation_mode"])
+
+    st.subheader("Predictions by 3-Minute Window")
+    st.dataframe(predictions_df, use_container_width=True)
+
+    fig_ml_workload = px.line(
+        predictions_df,
+        x="time_window",
+        y="complexity_score",
+        markers=True,
+        color="ml_predicted_workload",
+        title="ML-Predicted Workload by 3-Minute Window"
     )
-    fig_workload.update_layout(
+    fig_ml_workload.update_layout(
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)"
     )
-    st.plotly_chart(fig_workload, use_container_width=True)
+    st.plotly_chart(fig_ml_workload, use_container_width=True)
 
-    st.warning(
-        "This is currently a prototype workload score. The next version will replace it with a trained machine-learning model."
-    )
-
+    st.subheader("Confusion Matrix")
+    st.dataframe(confusion_df, use_container_width=True)
 # -----------------------------
 # Tab 3
 # -----------------------------
