@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from src.feature_engineering import create_time_window_features
+from src.llm_assistant import generate_rule_based_explanation
 
 st.set_page_config(
     page_title="ATCO Workload-Aware Green Arrival Dashboard",
@@ -436,9 +438,16 @@ with tab5:
 
     st.markdown(
         """
-        The LLM assistant will explain dashboard results using structured data from the current scenario.
-        In the final version, this section can connect to OpenAI API or a local LLM.
+        This assistant explains the dashboard results using the current scenario data.
+        
+        Current version: **rule-based explanation assistant**  
+        Future version: OpenAI API / local LLM integration
         """
+    )
+
+    explanation_mode = st.selectbox(
+        "Explanation mode",
+        ["Rule-based assistant", "OpenAI LLM assistant coming later"]
     )
 
     user_question = st.text_area(
@@ -446,18 +455,34 @@ with tab5:
         placeholder="Example: Why is the workload predicted as high?"
     )
 
-    if st.button("Generate prototype explanation"):
+    top_features = [
+        "number of aircraft",
+        "arrival spacing",
+        "speed variability",
+        "altitude variability"
+    ]
+
+    if st.button("Generate explanation"):
         if user_question.strip() == "":
             st.error("Please enter a question.")
         else:
-            st.markdown("### Prototype Answer")
-            st.write(
-                f"""
-                Based on the current dashboard state, the scenario contains {n_aircraft} aircraft,
-                an average distance of {avg_distance} km, an average altitude of {avg_altitude:.0f} ft,
-                and an emission proxy of {emission_proxy}. The prototype workload label is {workload_label}.
-                
-                A full LLM integration will later provide a more detailed explanation using model outputs,
-                feature importance values, and strategy-comparison results.
-                """
-            )
+            if explanation_mode == "Rule-based assistant":
+                answer = generate_rule_based_explanation(
+                    question=user_question,
+                    n_aircraft=n_aircraft,
+                    avg_distance=avg_distance,
+                    avg_altitude=avg_altitude,
+                    emission_proxy=emission_proxy,
+                    workload_label=workload_label,
+                    workload_score=workload_score,
+                    top_features=top_features
+                )
+
+                st.markdown("### Assistant Answer")
+                st.markdown(answer)
+
+            else:
+                st.warning(
+                    "OpenAI LLM integration will be added in the next version. "
+                    "For now, use the rule-based assistant."
+                )
