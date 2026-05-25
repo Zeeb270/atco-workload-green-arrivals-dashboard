@@ -7,6 +7,14 @@ from src.workload_model import train_and_evaluate_model, compare_models
 from src.synthetic_data import generate_synthetic_arrivals
 from src.strategy_comparison import compare_arrival_strategies
 from src.report_generator import generate_scenario_report
+from src.data_preprocessing import (
+    load_uploaded_data,
+    suggest_column_mapping,
+    apply_column_mapping,
+    clean_aviation_data,
+    validate_required_columns,
+)
+
 
 st.set_page_config(
     page_title="ATCO Workload-Aware Green Arrival Dashboard",
@@ -165,11 +173,49 @@ uploaded_file = None
 if data_mode == "Upload CSV":
     uploaded_file = st.sidebar.file_uploader(
         "Upload arrival traffic CSV",
-        type=["csv"]
+        type=["csv", "xlsx", "xls", "json"]
     )
 
 if data_mode == "Upload CSV" and uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
+    raw_df = load_uploaded_data(uploaded_file)
+    st.sidebar.success("Uploaded dataset loaded.")
+
+    st.subheader("Raw Uploaded Data Preview")
+    st.dataframe(raw_df.head(20), use_container_width=True)
+
+    suggested_mapping = suggest_column_mapping(raw_df)
+
+    st.subheader("Column Mapping")
+
+    column_mapping = {}
+
+    for standard_col in [
+        "aircraft_id",
+        "timestamp",
+        "distance_to_airport_km",
+        "altitude_ft",
+        "speed_kt",
+        "estimated_arrival_time",
+        "route_angle_deg",
+        "runway",
+    ]:
+        options = ["Not available"] + list(raw_df.columns)
+
+        suggested_value = suggested_mapping.get(standard_col)
+
+        if suggested_value in options:
+            default_index = options.index(suggested_value)
+        else:
+            default_index = 0
+
+        column_mapping[standard_col] = st.selectbox(
+            f"Map column for: {standard_col}",
+            options=options,
+            index=default_index
+        )
+
+    mapped_df = apply_column_mapping(raw_df, column_mapping)
+    df, cleaning_report = clean_aviation_data(mapped_df)
     st.sidebar.success("Uploaded dataset loaded.")
 
 elif data_mode == "Generate synthetic scenario":
@@ -302,6 +348,25 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
 # Tab 1
 # -----------------------------
 with tab1:
+
+    st.subheader("Data Quality Report")
+
+    st.json(cleaning_report)
+
+    present_cols, missing_cols = validate_required_columns(df)
+
+    col_q1, col_q2 = st.columns(2)
+
+    with col_q1:
+        st.success(f"Present standard columns: {len(present_cols)}")
+        st.write(present_cols)
+
+    with col_q2:
+        if missing_cols:
+            st.warning(f"Missing standard columns: {len(missing_cols)}")
+            st.write(missing_cols)
+        else:
+            st.success("No required standard columns are missing.")
     st.subheader("Arrival Traffic Overview")
 
     left, right = st.columns([1.1, 1])
