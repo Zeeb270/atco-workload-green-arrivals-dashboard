@@ -4,6 +4,7 @@ import plotly.express as px
 from src.feature_engineering import create_time_window_features
 from src.llm_assistant import generate_rule_based_explanation
 from src.workload_model import train_and_evaluate_model
+from src.synthetic_data import generate_synthetic_arrivals
 
 st.set_page_config(
     page_title="ATCO Workload-Aware Green Arrival Dashboard",
@@ -112,14 +113,39 @@ st.markdown(
 st.sidebar.title("Control Panel")
 st.sidebar.markdown("Upload arrival traffic data or use the built-in sample dataset.")
 
-uploaded_file = st.sidebar.file_uploader(
-    "Upload arrival traffic CSV",
-    type=["csv"]
+
+data_mode = st.sidebar.radio(
+    "Data source",
+    ["Use sample CSV", "Generate synthetic scenario", "Upload CSV"]
 )
 
 traffic_mode = st.sidebar.selectbox(
     "Traffic scenario",
-    ["Sample traffic", "Light", "Moderate", "Heavy"]
+    ["Light", "Moderate", "Heavy"]
+)
+
+n_synthetic_aircraft = st.sidebar.slider(
+    "Number of synthetic aircraft",
+    min_value=20,
+    max_value=180,
+    value=90,
+    step=10
+)
+
+scenario_duration = st.sidebar.slider(
+    "Scenario duration in minutes",
+    min_value=30,
+    max_value=180,
+    value=90,
+    step=15
+)
+
+random_seed = st.sidebar.number_input(
+    "Random seed",
+    min_value=1,
+    max_value=9999,
+    value=42,
+    step=1
 )
 
 model_choice = st.sidebar.selectbox(
@@ -132,9 +158,27 @@ show_raw_data = st.sidebar.checkbox("Show raw data", value=True)
 # -----------------------------
 # Load data
 # -----------------------------
-if uploaded_file is not None:
+uploaded_file = None
+
+if data_mode == "Upload CSV":
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload arrival traffic CSV",
+        type=["csv"]
+    )
+
+if data_mode == "Upload CSV" and uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
     st.sidebar.success("Uploaded dataset loaded.")
+
+elif data_mode == "Generate synthetic scenario":
+    df = generate_synthetic_arrivals(
+        scenario=traffic_mode,
+        n_aircraft=n_synthetic_aircraft,
+        duration_minutes=scenario_duration,
+        random_seed=random_seed
+    )
+    st.sidebar.success(f"Generated {traffic_mode} synthetic scenario.")
+
 else:
     df = pd.read_csv("data_sample/sample_arrivals.csv")
     st.sidebar.info("Using sample arrival dataset.")
