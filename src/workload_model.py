@@ -97,3 +97,58 @@ def get_feature_importance(model, X):
     }).sort_values("importance", ascending=False)
 
     return importance_df
+
+def compare_models(features_df):
+    """
+    Train and compare multiple workload classification models.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Model comparison table with accuracy, macro precision, macro recall,
+        and macro F1 score.
+    """
+
+    model_names = ["Random Forest", "Gradient Boosting", "kNN", "SVC"]
+
+    results = []
+
+    for model_name in model_names:
+        try:
+            _, metrics, _, _, _ = train_and_evaluate_model(
+                features_df,
+                model_name=model_name
+            )
+
+            results.append(
+                {
+                    "model": model_name,
+                    "accuracy": metrics["accuracy"],
+                    "macro_precision": metrics["macro_precision"],
+                    "macro_recall": metrics["macro_recall"],
+                    "macro_f1": metrics["macro_f1"],
+                    "evaluation_mode": metrics["evaluation_mode"],
+                }
+            )
+
+        except Exception as error:
+            results.append(
+                {
+                    "model": model_name,
+                    "accuracy": None,
+                    "macro_precision": None,
+                    "macro_recall": None,
+                    "macro_f1": None,
+                    "evaluation_mode": f"Failed: {error}",
+                }
+            )
+
+    comparison_df = pd.DataFrame(results)
+
+    comparison_df = comparison_df.sort_values(
+        "macro_f1",
+        ascending=False,
+        na_position="last"
+    )
+
+    return comparison_df
