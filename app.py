@@ -6,6 +6,7 @@ from src.llm_assistant import generate_rule_based_explanation, generate_groq_exp
 from src.workload_model import train_and_evaluate_model, compare_models
 from src.synthetic_data import generate_synthetic_arrivals
 from src.strategy_comparison import compare_arrival_strategies
+from src.report_generator import generate_scenario_report
 
 st.set_page_config(
     page_title="ATCO Workload-Aware Green Arrival Dashboard",
@@ -286,13 +287,14 @@ with col5:
 # -----------------------------
 # Tabs
 # -----------------------------
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
     [
         "Traffic Overview",
         "Workload Prediction",
         "Green Arrival Strategy",
         "Model Explainability",
-        "LLM Assistant"
+        "LLM Assistant",
+        "Scenario Report"
     ]
 )
 
@@ -641,3 +643,42 @@ with tab5:
 
                 except Exception as error:
                     st.error(f"Groq assistant failed: {error}")
+# -----------------------------
+# Tab 6
+# -----------------------------
+with tab6:
+    st.subheader("Downloadable Scenario Report")
+
+    st.markdown(
+        """
+        This section generates a short research-style report from the current dashboard state.
+        The report can be downloaded and included as supporting material in a portfolio or project documentation.
+        """
+    )
+
+    report_text = generate_scenario_report(
+        n_aircraft=n_aircraft,
+        avg_distance=avg_distance,
+        avg_altitude=avg_altitude,
+        avg_speed=avg_speed,
+        emission_proxy=emission_proxy,
+        workload_label=workload_label,
+        workload_score=workload_score,
+        model_choice=model_choice,
+        ml_metrics=ml_metrics,
+        strategy_df=strategy_df,
+        model_comparison_df=model_comparison_df,
+    )
+
+    st.text_area(
+        "Generated report preview",
+        report_text,
+        height=500
+    )
+
+    st.download_button(
+        label="Download Scenario Report",
+        data=report_text,
+        file_name="scenario_report.txt",
+        mime="text/plain"
+    )
