@@ -594,7 +594,8 @@ with tab5:
                     emission_proxy=emission_proxy,
                     workload_label=workload_label,
                     workload_score=workload_score,
-                    top_features=top_features
+                    top_features=top_features,
+                    strategy_df=strategy_df
                 )
 
                 st.markdown("### Assistant Answer")
