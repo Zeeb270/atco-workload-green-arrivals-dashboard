@@ -464,11 +464,12 @@ with tab4:
 
     st.markdown(
         """
-        This section will later show feature importance, confusion matrices, macro F1 scores,
-        and model comparison results.
+        This section compares workload prediction models and shows which
+        traffic-complexity features are most influential in the current model.
         """
     )
-        st.subheader("Model Comparison")
+
+    st.subheader("Model Comparison")
 
     st.dataframe(model_comparison_df, use_container_width=True)
 
@@ -493,28 +494,32 @@ with tab4:
         f"with macro F1 = {best_macro_f1:.3f}"
     )
 
-    explain_df = pd.DataFrame(
-        {
-            "model": ["kNN", "SVC", "Random Forest", "Gradient Boosting"],
-            "macro_f1_placeholder": [0.78, 0.76, 0.73, 0.75],
-            "interpretability": ["Medium", "Medium", "High", "Medium"]
-        }
-    )
+    st.subheader("Feature Importance")
 
-    st.dataframe(explain_df, use_container_width=True)
+    st.dataframe(feature_importance_df, use_container_width=True)
 
-    fig_model = px.bar(
-        explain_df,
-        x="model",
-        y="macro_f1_placeholder",
-        title="Placeholder Model Comparison"
+    fig_importance = px.bar(
+        feature_importance_df,
+        x="importance",
+        y="feature",
+        orientation="h",
+        title=f"Feature Importance: {model_choice}"
     )
-    fig_model.update_layout(
+    fig_importance.update_layout(
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)"
+        plot_bgcolor="rgba(0,0,0,0)",
+        yaxis={"categoryorder": "total ascending"}
     )
-    st.plotly_chart(fig_model, use_container_width=True)
+    st.plotly_chart(fig_importance, use_container_width=True)
+
+    st.info(
+        """
+        For Random Forest and Gradient Boosting, feature importance comes from the model.
+        For kNN and SVC, this prototype currently uses feature variance as a placeholder.
+        A future version can use permutation importance or SHAP.
+        """
+    )
 
 # -----------------------------
 # Tab 5
