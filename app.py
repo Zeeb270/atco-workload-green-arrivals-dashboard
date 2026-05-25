@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 from src.feature_engineering import create_time_window_features
 from src.llm_assistant import generate_rule_based_explanation
-from src.workload_model import train_and_evaluate_model
+from src.workload_model import train_and_evaluate_model, compare_models
 from src.synthetic_data import generate_synthetic_arrivals
 
 st.set_page_config(
@@ -195,6 +195,7 @@ ml_model, ml_metrics, confusion_df, predictions_df, feature_importance_df = trai
     features_df,
     model_name=model_choice
 )
+model_comparison_df = compare_models(features_df)
 # -----------------------------
 # Basic derived metrics
 # -----------------------------
@@ -466,6 +467,30 @@ with tab4:
         This section will later show feature importance, confusion matrices, macro F1 scores,
         and model comparison results.
         """
+    )
+        st.subheader("Model Comparison")
+
+    st.dataframe(model_comparison_df, use_container_width=True)
+
+    fig_model_comparison = px.bar(
+        model_comparison_df,
+        x="model",
+        y="macro_f1",
+        title="Model Comparison by Macro F1 Score"
+    )
+    fig_model_comparison.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)"
+    )
+    st.plotly_chart(fig_model_comparison, use_container_width=True)
+
+    best_model_name = model_comparison_df.iloc[0]["model"]
+    best_macro_f1 = model_comparison_df.iloc[0]["macro_f1"]
+
+    st.success(
+        f"Best model in current scenario: {best_model_name} "
+        f"with macro F1 = {best_macro_f1:.3f}"
     )
 
     explain_df = pd.DataFrame(
