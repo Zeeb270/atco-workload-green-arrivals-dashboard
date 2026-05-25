@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from src.feature_engineering import create_time_window_features
-from src.llm_assistant import generate_rule_based_explanation
+from src.llm_assistant import generate_rule_based_explanation, generate_groq_explanation
 from src.workload_model import train_and_evaluate_model, compare_models
 from src.synthetic_data import generate_synthetic_arrivals
 from src.strategy_comparison import compare_arrival_strategies
@@ -566,7 +566,7 @@ with tab5:
 
     explanation_mode = st.selectbox(
         "Explanation mode",
-        ["Rule-based assistant", "OpenAI LLM assistant coming later"]
+        ["Rule-based assistant", "OpenAI LLM assistant coming later", "Free Groq Llama assistant"]
     )
 
     user_question = st.text_area(
@@ -581,28 +581,63 @@ with tab5:
         "altitude variability"
     ]
 
+    scenario_context = {
+    "number_of_aircraft": int(n_aircraft),
+    "average_distance_km": float(avg_distance),
+    "average_altitude_ft": float(avg_altitude),
+    "emission_proxy": float(emission_proxy),
+    "workload_label": str(workload_label),
+    "workload_score": float(round(workload_score, 3)),
+    "selected_ml_model": str(model_choice),
+    "model_metrics": {
+        "accuracy": float(round(ml_metrics["accuracy"], 3)),
+        "macro_precision": float(round(ml_metrics["macro_precision"], 3)),
+        "macro_recall": float(round(ml_metrics["macro_recall"], 3)),
+        "macro_f1": float(round(ml_metrics["macro_f1"], 3)),
+        "evaluation_mode": ml_metrics["evaluation_mode"],
+    },
+    "best_strategy": strategy_df.iloc[0].to_dict(),
+    "top_features": top_features,
+}
+
     if st.button("Generate explanation"):
         if user_question.strip() == "":
             st.error("Please enter a question.")
         else:
             if explanation_mode == "Rule-based assistant":
-                answer = generate_rule_based_explanation(
-                    question=user_question,
-                    n_aircraft=n_aircraft,
-                    avg_distance=avg_distance,
-                    avg_altitude=avg_altitude,
-                    emission_proxy=emission_proxy,
-                    workload_label=workload_label,
-                    workload_score=workload_score,
-                    top_features=top_features,
-                    strategy_df=strategy_df
-                )
+    answer = generate_rule_based_explanation(
+        question=user_question,
+        n_aircraft=n_aircraft,
+        avg_distance=avg_distance,
+        avg_altitude=avg_altitude,
+        emission_proxy=emission_proxy,
+        workload_label=workload_label,
+        workload_score=workload_score,
+        top_features=top_features,
+        strategy_df=strategy_df
+    )
 
-                st.markdown("### Assistant Answer")
-                st.markdown(answer)
+    st.markdown("### Assistant Answer")
+    st.markdown(answer)
 
-            else:
-                st.warning(
-                    "OpenAI LLM integration will be added in the next version. "
-                    "For now, use the rule-based assistant."
-                )
+else:
+    try:
+        groq_api_key = st.secrets["GROQ_API_KEY"]
+
+        answer = generate_groq_explanation(
+            question=user_question,
+            scenario_context=scenario_context,
+            api_key=groq_api_key
+        )
+
+        st.markdown("### Groq Llama Assistant Answer")
+        st.markdown(answer)
+
+    except KeyError:
+        st.error(
+            "Groq API key is missing. Add GROQ_API_KEY in Streamlit Cloud secrets, "
+            "or use the rule-based assistant."
+        )
+
+    except Exception as error:
+        st.error(f"Groq assistant failed: {error}")
