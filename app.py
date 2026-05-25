@@ -172,7 +172,7 @@ uploaded_file = None
 
 if data_mode == "Upload CSV":
     uploaded_file = st.sidebar.file_uploader(
-        "Upload arrival traffic CSV",
+        "Upload arrival traffic file",
         type=["csv", "xlsx", "xls", "json"]
     )
 
@@ -216,19 +216,21 @@ if data_mode == "Upload CSV" and uploaded_file is not None:
 
     mapped_df = apply_column_mapping(raw_df, column_mapping)
     df, cleaning_report = clean_aviation_data(mapped_df)
-    st.sidebar.success("Uploaded dataset loaded.")
 
 elif data_mode == "Generate synthetic scenario":
-    df = generate_synthetic_arrivals(
+    raw_df = generate_synthetic_arrivals(
         scenario=traffic_mode,
         n_aircraft=n_synthetic_aircraft,
         duration_minutes=scenario_duration,
         random_seed=random_seed
     )
+
+    df, cleaning_report = clean_aviation_data(raw_df)
     st.sidebar.success(f"Generated {traffic_mode} synthetic scenario.")
 
 else:
-    df = pd.read_csv("data_sample/sample_arrivals.csv")
+    raw_df = pd.read_csv("data_sample/sample_arrivals.csv")
+    df, cleaning_report = clean_aviation_data(raw_df)
     st.sidebar.info("Using sample arrival dataset.")
 
 # Convert times if available
