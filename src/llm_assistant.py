@@ -129,3 +129,55 @@ You can ask questions such as:
 - What are the limitations?
 - How does the model work?
 """
+
+def generate_groq_explanation(
+    question,
+    scenario_context,
+    api_key,
+    model="llama-3.1-8b-instant"
+):
+    """
+    Generate an explanation using Groq-hosted Llama.
+
+    The model explains dashboard results using only the provided scenario context.
+    """
+
+    from groq import Groq
+
+    client = Groq(api_key=api_key)
+
+    system_prompt = """
+You are an aviation logistics research assistant.
+
+You explain a dashboard for workload-aware sustainable airport arrival operations.
+
+Rules:
+- Use only the provided scenario context.
+- Do not invent operational facts.
+- Do not claim this is an operational ATC system.
+- Be clear that workload and emissions are prototype proxy metrics.
+- Keep the answer concise, technical, and suitable for a PhD project discussion.
+- The ML model predicts workload. You only explain the results.
+"""
+
+    user_prompt = f"""
+User question:
+{question}
+
+Scenario context:
+{scenario_context}
+
+Explain the result clearly.
+"""
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.2,
+        max_tokens=500,
+    )
+
+    return response.choices[0].message.content
