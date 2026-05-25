@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 from src.feature_engineering import create_time_window_features
 from src.llm_assistant import generate_rule_based_explanation
+from src.workload_model import train_and_evaluate_model
 
 st.set_page_config(
     page_title="ATCO Workload-Aware Green Arrival Dashboard",
@@ -146,6 +147,10 @@ if "estimated_arrival_time" in df.columns:
     df["estimated_arrival_time"] = pd.to_datetime(df["estimated_arrival_time"])
 # Create 3-minute traffic-complexity features
 features_df = create_time_window_features(df, window_minutes=3)
+ml_model, ml_metrics, confusion_df, predictions_df, feature_importance_df = train_and_evaluate_model(
+    features_df,
+    model_name=model_choice
+)
 # -----------------------------
 # Basic derived metrics
 # -----------------------------
