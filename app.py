@@ -5,6 +5,7 @@ from src.feature_engineering import create_time_window_features
 from src.llm_assistant import generate_rule_based_explanation
 from src.workload_model import train_and_evaluate_model, compare_models
 from src.synthetic_data import generate_synthetic_arrivals
+from src.strategy_comparison import compare_arrival_strategies
 
 st.set_page_config(
     page_title="ATCO Workload-Aware Green Arrival Dashboard",
@@ -196,6 +197,7 @@ ml_model, ml_metrics, confusion_df, predictions_df, feature_importance_df = trai
     model_name=model_choice
 )
 model_comparison_df = compare_models(features_df)
+strategy_df = compare_arrival_strategies(features_df)
 # -----------------------------
 # Basic derived metrics
 # -----------------------------
@@ -412,13 +414,21 @@ with tab2:
 with tab3:
     st.subheader("Green Arrival Strategy Comparison")
 
-    strategy_df = pd.DataFrame(
-        {
-            "strategy": ["FCFS baseline", "Green-only", "Workload-aware green"],
-            "delay_proxy": [18, 12, 15],
-            "emission_proxy": [100, 74, 82],
-            "high_workload_windows": [3, 5, 1]
-        }
+    st.markdown(
+        """
+        This section compares simplified arrival-management strategies using proxy metrics
+        for delay, environmental efficiency, and controller workload risk.
+        """
+    )
+
+    st.dataframe(strategy_df, use_container_width=True)
+
+    best_strategy = strategy_df.iloc[0]["strategy"]
+    best_score = strategy_df.iloc[0]["balanced_score"]
+
+    st.success(
+        f"Best balanced strategy in this scenario: {best_strategy} "
+        f"with balanced score = {best_score:.3f}"
     )
 
     col_a, col_b = st.columns(2)
@@ -427,7 +437,7 @@ with tab3:
         fig_strategy = px.bar(
             strategy_df,
             x="strategy",
-            y=["delay_proxy", "emission_proxy", "high_workload_windows"],
+            y=["delay_proxy", "emission_proxy", "workload_risk_proxy"],
             barmode="group",
             title="Strategy Trade-Off Comparison"
         )
@@ -443,9 +453,9 @@ with tab3:
             strategy_df,
             x="emission_proxy",
             y="delay_proxy",
-            size="high_workload_windows",
+            size="workload_risk_proxy",
             color="strategy",
-            title="Delay vs Emission Proxy"
+            title="Delay vs Emission Proxy with Workload Risk"
         )
         fig_pareto.update_layout(
             template="plotly_dark",
@@ -454,8 +464,26 @@ with tab3:
         )
         st.plotly_chart(fig_pareto, use_container_width=True)
 
-    st.dataframe(strategy_df, use_container_width=True)
+    fig_workload_strategy = px.bar(
+        strategy_df,
+        x="strategy",
+        y="high_workload_windows_proxy",
+        title="Estimated High-Workload Windows by Strategy"
+    )
+    fig_workload_strategy.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)"
+    )
+    st.plotly_chart(fig_workload_strategy, use_container_width=True)
 
+    st.info(
+        """
+        Interpretation: the green-only strategy may reduce the emission proxy,
+        but it can increase workload risk. The workload-aware green strategy is designed
+        to balance environmental performance with operational feasibility.
+        """
+    )
 # -----------------------------
 # Tab 4
 # -----------------------------
