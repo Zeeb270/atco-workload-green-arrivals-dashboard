@@ -144,7 +144,8 @@ if "timestamp" in df.columns:
 
 if "estimated_arrival_time" in df.columns:
     df["estimated_arrival_time"] = pd.to_datetime(df["estimated_arrival_time"])
-
+# Create 3-minute traffic-complexity features
+features_df = create_time_window_features(df, window_minutes=3)
 # -----------------------------
 # Basic derived metrics
 # -----------------------------
@@ -153,18 +154,14 @@ avg_distance = round(df["distance_to_airport_km"].mean(), 2)
 avg_altitude = round(df["altitude_ft"].mean(), 0)
 avg_speed = round(df["speed_kt"].mean(), 2)
 
-# Prototype workload score
-# This is deliberately simple for the first version.
-workload_score = (
-    0.35 * n_aircraft
-    + 0.02 * df["speed_kt"].std()
-    + 0.001 * df["altitude_ft"].std()
-)
+# Workload score from engineered traffic-complexity features
+workload_score = features_df["complexity_score"].mean()
+latest_workload_label = features_df.iloc[-1]["workload_label"]
 
-if workload_score < 5:
+if latest_workload_label == "LOW":
     workload_label = "LOW"
     workload_class = "status-low"
-elif workload_score < 9:
+elif latest_workload_label == "MEDIUM":
     workload_label = "MEDIUM"
     workload_class = "status-medium"
 else:
@@ -298,6 +295,23 @@ with tab1:
 # -----------------------------
 with tab2:
     st.subheader("Prototype Workload Prediction")
+        st.subheader("3-Minute Traffic-Complexity Features")
+    st.dataframe(features_df, use_container_width=True)
+
+    fig_window_workload = px.line(
+        features_df,
+        x="time_window",
+        y="complexity_score",
+        markers=True,
+        color="workload_label",
+        title="Traffic Complexity Score by 3-Minute Window"
+    )
+    fig_window_workload.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)"
+    )
+    st.plotly_chart(fig_window_workload, use_container_width=True)
 
     st.markdown(
         f"""
