@@ -8,6 +8,12 @@ Airport arrival procedures must balance efficiency, environmental performance, s
 
 This project explores how machine learning can support decision-making by predicting workload risk from arrival traffic complexity features and visualizing the trade-off between delay, environmental proxy metrics, and workload.
 
+## Live Dashboard
+
+The deployed Streamlit dashboard is available here:
+
+https://atco-workload-green-arrivals-dashboard.streamlit.app/
+
 ## Research Context
 
 The project is inspired by recent research on predicting air traffic controller workload using eye-tracking and machine learning. In that work, workload was estimated using physiological and behavioral indicators such as pupil diameter, blink behavior, fixations, saccades, and head movement.
