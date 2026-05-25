@@ -605,39 +605,39 @@ with tab5:
             st.error("Please enter a question.")
         else:
             if explanation_mode == "Rule-based assistant":
-    answer = generate_rule_based_explanation(
-        question=user_question,
-        n_aircraft=n_aircraft,
-        avg_distance=avg_distance,
-        avg_altitude=avg_altitude,
-        emission_proxy=emission_proxy,
-        workload_label=workload_label,
-        workload_score=workload_score,
-        top_features=top_features,
-        strategy_df=strategy_df
-    )
+                answer = generate_rule_based_explanation(
+                    question=user_question,
+                    n_aircraft=n_aircraft,
+                    avg_distance=avg_distance,
+                    avg_altitude=avg_altitude,
+                    emission_proxy=emission_proxy,
+                    workload_label=workload_label,
+                    workload_score=workload_score,
+                    top_features=top_features,
+                    strategy_df=strategy_df
+                )
 
-    st.markdown("### Assistant Answer")
-    st.markdown(answer)
+                st.markdown("### Assistant Answer")
+                st.markdown(answer)
 
-else:
-    try:
-        groq_api_key = st.secrets["GROQ_API_KEY"]
+            else:
+                try:
+                    groq_api_key = st.secrets["GROQ_API_KEY"]
 
-        answer = generate_groq_explanation(
-            question=user_question,
-            scenario_context=scenario_context,
-            api_key=groq_api_key
-        )
+                    answer = generate_groq_explanation(
+                        question=user_question,
+                        scenario_context=scenario_context,
+                        api_key=groq_api_key
+                    )
 
-        st.markdown("### Groq Llama Assistant Answer")
-        st.markdown(answer)
+                    st.markdown("### Groq Llama Assistant Answer")
+                    st.markdown(answer)
 
-    except KeyError:
-        st.error(
-            "Groq API key is missing. Add GROQ_API_KEY in Streamlit Cloud secrets, "
-            "or use the rule-based assistant."
-        )
+                except KeyError:
+                    st.error(
+                        "Groq API key is missing. Add GROQ_API_KEY in Streamlit Cloud secrets, "
+                        "or use the rule-based assistant."
+                    )
 
-    except Exception as error:
-        st.error(f"Groq assistant failed: {error}")
+                except Exception as error:
+                    st.error(f"Groq assistant failed: {error}")
