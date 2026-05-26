@@ -28,13 +28,23 @@ from src.ui_components import (
     research_note,
     warning_note,
 )
+from src.ui_phase1 import (
+    inject_phase1_css,
+    mission_header,
+    kpi_card,
+    small_note,
+    warning_note,
+    panel_title,
+)
+
 
 st.set_page_config(
     page_title="ATCO Workload-Aware Green Arrival Dashboard",
     page_icon="✈️",
     layout="wide"
 )
-
+inject_phase1_css()
+mission_header()
 # -----------------------------
 # Custom CSS
 # -----------------------------
@@ -401,7 +411,7 @@ with col5:
 # -----------------------------
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
     [
-        "Mission Control",
+        "Phase 1 Demo",
         "Data & Scenario",
         "Green Arrival Optimizer",
         "ML Workload Intelligence",
@@ -414,55 +424,201 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
 # Tab 1
 # -----------------------------
 with tab1:
-    st.subheader("Mission Control")
-
-    st.markdown(
+    small_note(
         """
-        This dashboard is a research prototype for evaluating environmentally efficient
-        arrival strategies at Stockholm Arlanda Airport.
-
-        The current Phase 1 focus is **green arrival optimization**: comparing arrival
-        sequencing strategies using delay, holding, extra-distance, and environmental-cost
-        proxy metrics.
-
-        Phase 2 extends the framework with **machine-learning-based workload intelligence**.
-        Phase 3 adds an **LLM-ready explanation and reporting layer**.
+        This demo shows Phase 1 of the research idea: using real Swedish air-traffic data
+        to evaluate greener arrival-management indicators for Stockholm Arlanda.
+        The current version focuses on data processing, arrival-region trajectory features,
+        and environmental evidence. ML workload and LLM explanation are kept as later phases.
         """
     )
 
-    best_green_strategy = green_strategy_df.iloc[0]["strategy"]
-    best_environmental_cost = green_strategy_df.iloc[0]["environmental_cost"]
-    best_delay = green_strategy_df.iloc[0]["total_delay_min"]
+    # Basic KPI values
+    n_flights = df["aircraft_id"].nunique() if "aircraft_id" in df.columns else len(df)
+    n_rows = len(df)
 
-    col1, col2, col3, col4 = st.columns(4)
+    avg_distance = (
+        df["distance_to_airport_km"].mean()
+        if "distance_to_airport_km" in df.columns
+        else None
+    )
 
-    col1.metric("Aircraft Analysed", n_aircraft)
-    col2.metric("Best Green Strategy", best_green_strategy)
-    col3.metric("Environmental Cost", f"{best_environmental_cost:,.0f}")
-    col4.metric("Total Delay", f"{best_delay:,.1f} min")
+    avg_altitude = (
+        df["altitude_ft"].mean()
+        if "altitude_ft" in df.columns
+        else None
+    )
 
-    st.markdown("### Research Workflow")
+    avg_speed = (
+        df["speed_kt"].mean()
+        if "speed_kt" in df.columns
+        else None
+    )
 
-    st.markdown(
+    runway_count = (
+        df["runway"].nunique()
+        if "runway" in df.columns
+        else "N/A"
+    )
+
+    st.markdown('<div class="kpi-strip">', unsafe_allow_html=True)
+
+    kpi_card(
+        "Flights analysed",
+        f"{n_flights:,}",
+        "SCAT ESSA arrivals",
+        "green",
+    )
+
+    kpi_card(
+        "Data rows",
+        f"{n_rows:,}",
+        "loaded records",
+        "white",
+    )
+
+    kpi_card(
+        "Avg distance",
+        f"{avg_distance:.1f} km" if avg_distance is not None else "N/A",
+        "to Stockholm Arlanda",
+        "blue",
+    )
+
+    kpi_card(
+        "Avg altitude",
+        f"{avg_altitude:,.0f} ft" if avg_altitude is not None else "N/A",
+        "arrival state",
+        "amber",
+    )
+
+    kpi_card(
+        "Runways",
+        f"{runway_count}",
+        "detected in data",
+        "red",
+    )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    left_col, right_col = st.columns([1.6, 1])
+
+    with left_col:
+        st.markdown('<div class="phase-panel">', unsafe_allow_html=True)
+        panel_title("Arrival traffic view")
+
+        if {"lat", "lon"}.issubset(df.columns):
+            map_df = df.dropna(subset=["lat", "lon"]).copy()
+
+            if len(map_df) > 3000:
+                map_df = map_df.sample(3000, random_state=42)
+
+            st.map(
+                map_df,
+                latitude="lat",
+                longitude="lon",
+                size=8,
+                use_container_width=True,
+            )
+        else:
+            st.info(
+                "Map view is available when the trajectory file contains lat/lon columns. "
+                "Upload scat_essa_trajectory_points_200.csv to activate it."
+            )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with right_col:
+        st.markdown('<div class="phase-panel">', unsafe_allow_html=True)
+        panel_title("Arrival list")
+
+        display_cols = [
+            col for col in [
+                "aircraft_id",
+                "adep",
+                "aircraft_type",
+                "runway",
+                "star",
+                "distance_to_airport_km",
+                "altitude_ft",
+                "speed_kt",
+            ]
+            if col in df.columns
+        ]
+
+        if display_cols:
+            arrival_list = df[display_cols].copy()
+
+            if "aircraft_id" in arrival_list.columns:
+                arrival_list = arrival_list.drop_duplicates("aircraft_id")
+
+            st.dataframe(
+                arrival_list.head(20),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("No arrival-list columns found in the current dataset.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    bottom1, bottom2, bottom3 = st.columns(3)
+
+    with bottom1:
+        st.markdown('<div class="phase-panel">', unsafe_allow_html=True)
+        panel_title("Dataset evidence")
+        st.markdown(
+            """
+            **Source:** SCAT Swedish Civil Air Traffic Control dataset  
+            **Airport:** Stockholm Arlanda / ESSA  
+            **Current demo scale:** 200-flight sample  
+            **Purpose:** arrival-region green strategy prototype
+            """
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with bottom2:
+        st.markdown('<div class="phase-panel">', unsafe_allow_html=True)
+        panel_title("Environmental evidence")
+
+        if "low_altitude_level_time_min" in df.columns:
+            value = df["low_altitude_level_time_min"].sum()
+            st.metric("Low-altitude level time", f"{value:.1f} min")
+        elif "estimated_co2_kg" in df.columns:
+            value = df["estimated_co2_kg"].sum()
+            st.metric("Estimated CO₂", f"{value:,.0f} kg")
+        else:
+            st.markdown(
+                """
+                Environmental evidence will use trajectory-derived indicators such as
+                track distance, level-flight time, and estimated fuel/CO₂.
+                """
+            )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with bottom3:
+        st.markdown('<div class="phase-panel">', unsafe_allow_html=True)
+        panel_title("Research extension")
+        st.markdown(
+            """
+            **Phase 2:** ML workload prediction  
+            **Phase 3:** LLM explanation assistant  
+            **Future:** rolling-horizon green arrival optimization
+            """
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    warning_note(
         """
-        ```text
-        Real or simulated arrival data
-                ↓
-        Arrival sequencing strategy comparison
-                ↓
-        Environmental proxy evaluation
-                ↓
-        ML workload-risk extension
-                ↓
-        LLM-assisted explanation and reporting
-        ```
+        This is a research prototype. The current demo uses historic SCAT data and
+        estimated environmental indicators. It should not be interpreted as a live
+        operational ATC decision-support system.
         """
     )
 
-    st.info(
-        "Current environmental values are proxy metrics for strategy comparison, "
-        "not certified fuel-burn or CO₂ estimates."
-    )
+    with st.expander("Show technical data sample"):
+        st.dataframe(df.head(50), use_container_width=True)
+
 # -----------------------------
 # Tab 2
 # -----------------------------
