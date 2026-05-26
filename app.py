@@ -1,551 +1,951 @@
-"""
-ATCO Workload-Aware Green Arrival Dashboard
-Stockholm Arlanda (ESSA) — Research Prototype
-
-Run with:
-    streamlit run app.py
-"""
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime, time
-
+from src.feature_engineering import create_time_window_features
+from src.llm_assistant import generate_rule_based_explanation, generate_groq_explanation
+from src.workload_model import train_and_evaluate_model, compare_models
+from src.synthetic_data import generate_synthetic_arrivals
+from src.strategy_comparison import compare_arrival_strategies
+from src.report_generator import generate_scenario_report
 from src.data_preprocessing import (
     load_uploaded_data,
     suggest_column_mapping,
     apply_column_mapping,
     clean_aviation_data,
+    validate_required_columns,
 )
-from src.feature_engineering import create_time_window_features
-from src.synthetic_data import generate_synthetic_arrivals
 from src.green_arrival_optimizer import compare_green_arrival_strategies
-from src.workload_model import train_and_evaluate_model, compare_models
-from src.strategy_comparison import compare_arrival_strategies
-from src.report_generator import generate_scenario_report
-from src.environmental_metrics import compute_cdo_rate, compute_fuel_saved_kg
-from src.opensky_adapter import convert_opensky_arrivals_to_dashboard_format, is_opensky_arrival_format
-from src.opensky_fetcher import fetch_opensky_arrivals
-from src.llm_assistant import generate_rule_based_explanation, generate_groq_explanation
-from src.ui import inject_css, render_header, kpi_card, panel, small_note, warning_note
-
-# ── Page config ────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="ESSA Green Arrivals · ATCO Workload Dashboard",
-    page_icon="✈️",
-    layout="wide",
-    initial_sidebar_state="expanded",
+from src.opensky_adapter import (
+    convert_opensky_arrivals_to_dashboard_format,
+    is_opensky_arrival_format,
 )
-inject_css()
-render_header()
+from datetime import datetime, time
+from src.opensky_fetcher import fetch_opensky_arrivals
+from src.ui_components import (
+    inject_global_css,
+    hero,
+    kpi_card,
+    research_note,
+    warning_note,
+)
+from src.ui_phase1 import (
+    inject_phase1_css,
+    mission_header,
+    kpi_card,
+    small_note,
+    warning_note,
+    panel_title,
+)
 
-# ── Sidebar ─────────────────────────────────────────────────────────────────
+
+st.set_page_config(
+    page_title="ATCO Workload-Aware Green Arrival Dashboard",
+    page_icon="✈️",
+    layout="wide"
+)
+inject_phase1_css()
+mission_header()
+# -----------------------------
+# Custom CSS
+# -----------------------------
+inject_global_css()
+hero()
+# -----------------------------
+# Header
+# -----------------------------
+
+# -----------------------------
+# Sidebar
+# -----------------------------
 st.sidebar.title("Control Panel")
-st.sidebar.markdown("Configure data source, scenario, and model.")
+st.sidebar.markdown("Upload arrival traffic data or use the built-in sample dataset.")
+
+
+dataset_structure = st.sidebar.radio(
+    "Dataset structure",
+    [
+        "Raw aircraft arrival data",
+        "OpenSky airport arrivals",
+        "Preprocessed ML feature table"
+    ]
+)
 
 data_mode = st.sidebar.radio(
     "Data source",
-    ["Sample CSV", "Synthetic scenario", "Upload file", "Fetch OpenSky (ESSA)"],
+    ["Use sample CSV", "Generate synthetic scenario", "Upload file",
+        "Fetch OpenSky ESSA arrivals"]
 )
-
-dataset_structure = st.sidebar.radio(
-    "Uploaded file format",
-    ["Raw aircraft arrival data", "OpenSky airport arrivals"],
-    help="Only used when uploading a file.",
-)
-
-# OpenSky date pickers (shown only when relevant)
 opensky_airport = "ESSA"
-opensky_start_date = opensky_end_date = None
-opensky_start_time = opensky_end_time = None
+opensky_start_date = None
+opensky_end_date = None
 
-if data_mode == "Fetch OpenSky (ESSA)":
-    st.sidebar.markdown("### OpenSky query")
-    opensky_airport = st.sidebar.text_input("Airport ICAO", value="ESSA")
+if data_mode == "Fetch OpenSky ESSA arrivals":
+    st.sidebar.markdown("### OpenSky ESSA Arrivals")
+
+    opensky_airport = st.sidebar.text_input(
+        "Airport ICAO code",
+        value="ESSA"
+    )
+
     opensky_start_date = st.sidebar.date_input(
-        "Start date", value=pd.Timestamp.today().date() - pd.Timedelta(days=7)
+        "Start date",
+        value=pd.Timestamp.today().date() - pd.Timedelta(days=7)
     )
-    opensky_start_time = st.sidebar.time_input("Start time (UTC)", value=time(6, 0))
+
+    opensky_start_time = st.sidebar.time_input(
+        "Start time",
+        value=time(6, 0)
+    )
+
     opensky_end_date = st.sidebar.date_input(
-        "End date", value=pd.Timestamp.today().date() - pd.Timedelta(days=7)
+        "End date",
+        value=pd.Timestamp.today().date() - pd.Timedelta(days=7)
     )
-    opensky_end_time = st.sidebar.time_input("End time (UTC)", value=time(12, 0))
+
+    opensky_end_time = st.sidebar.time_input(
+        "End time",
+        value=time(12, 0)
+    )
+
     st.sidebar.caption(
-        "Use a small interval (e.g. 6 h). OpenSky airport arrivals are "
-        "updated after nightly batch processing — use dates from yesterday or earlier."
+        "Use a small historical interval first, for example 06:00–12:00. "
+        "OpenSky direct fetching may timeout for large intervals."
     )
 
-st.sidebar.markdown("### Scenario settings")
-traffic_mode = st.sidebar.selectbox("Traffic scenario", ["Light", "Moderate", "Heavy"])
-n_synthetic_aircraft = st.sidebar.slider("Synthetic aircraft", 20, 180, 90, 10)
-separation_minutes = st.sidebar.slider("Runway separation (min)", 2.0, 6.0, 3.0, 0.5)
-scenario_duration = st.sidebar.slider("Scenario duration (min)", 30, 180, 90, 15)
-random_seed = st.sidebar.number_input("Random seed", 1, 9999, 42, 1)
-
-st.sidebar.markdown("### Model")
-model_choice = st.sidebar.selectbox(
-    "Workload classifier",
-    ["Random Forest", "Gradient Boosting", "kNN", "SVC"],
+    st.sidebar.caption(
+        "Use dates from yesterday or earlier. OpenSky airport arrivals are updated after nightly batch processing."
+    )
+traffic_mode = st.sidebar.selectbox(
+    "Traffic scenario",
+    ["Light", "Moderate", "Heavy"]
 )
 
-# ── Load data ────────────────────────────────────────────────────────────────
+n_synthetic_aircraft = st.sidebar.slider(
+    "Number of synthetic aircraft",
+    min_value=20,
+    max_value=180,
+    value=90,
+    step=10
+)
+
+separation_minutes = st.sidebar.slider(
+    "Minimum runway separation in minutes",
+    min_value=2.0,
+    max_value=6.0,
+    value=3.0,
+    step=0.5
+)
+
+scenario_duration = st.sidebar.slider(
+    "Scenario duration in minutes",
+    min_value=30,
+    max_value=180,
+    value=90,
+    step=15
+)
+
+random_seed = st.sidebar.number_input(
+    "Random seed",
+    min_value=1,
+    max_value=9999,
+    value=42,
+    step=1
+)
+
+model_choice = st.sidebar.selectbox(
+    "Workload model",
+    ["Rule-based prototype", "kNN placeholder", "SVC placeholder", "Random Forest placeholder"]
+)
+
+show_raw_data = st.sidebar.checkbox("Show raw data", value=True)
+
+# -----------------------------
+# Load data
+# -----------------------------
 uploaded_file = None
+
 if data_mode == "Upload file":
     uploaded_file = st.sidebar.file_uploader(
-        "Upload arrival file", type=["csv", "xlsx", "xls", "json"]
+        "Upload arrival traffic file",
+        type=["csv", "xlsx", "xls", "json"]
     )
 
-@st.cache_data(show_spinner=False)
-def load_sample():
-    return pd.read_csv("data_sample/sample_arrivals.csv")
+if data_mode == "Upload file" and uploaded_file is not None:
+    raw_df = load_uploaded_data(uploaded_file)
+    st.sidebar.success("Uploaded dataset loaded.")
 
-@st.cache_data(show_spinner=False)
-def load_synthetic(scenario, n, duration, seed):
-    return generate_synthetic_arrivals(
-        scenario=scenario, n_aircraft=n, duration_minutes=duration, random_seed=seed
-    )
+    st.subheader("Raw Uploaded Data Preview")
+    st.dataframe(raw_df.head(20), use_container_width=True)
 
-with st.spinner("Loading data…"):
-    if data_mode == "Upload file" and uploaded_file is not None:
-        raw_df = load_uploaded_data(uploaded_file)
-        if dataset_structure == "OpenSky airport arrivals":
-            if not is_opensky_arrival_format(raw_df):
-                st.warning(
-                    "File does not look like a standard OpenSky arrivals export. "
-                    "The converter will try anyway — check the output carefully."
-                )
-            raw_df = convert_opensky_arrivals_to_dashboard_format(raw_df)
-        else:
-            mapping = suggest_column_mapping(raw_df)
-            with st.expander("Column mapping (edit if needed)", expanded=False):
-                col_opts = ["Not available"] + list(raw_df.columns)
-                column_mapping = {}
-                for standard_col, suggested in mapping.items():
-                    default = col_opts.index(suggested) if suggested in col_opts else 0
-                    column_mapping[standard_col] = st.selectbox(
-                        f"{standard_col}", col_opts, index=default, key=standard_col
-                    )
-            raw_df = apply_column_mapping(raw_df, column_mapping)
-        df, cleaning_report = clean_aviation_data(raw_df)
-        st.sidebar.success(f"Loaded {len(df)} rows from upload.")
-
-    elif data_mode == "Fetch OpenSky (ESSA)":
-        begin_dt = datetime.combine(opensky_start_date, opensky_start_time)
-        end_dt = datetime.combine(opensky_end_date, opensky_end_time)
-        begin_unix = int(pd.Timestamp(begin_dt).timestamp())
-        end_unix = int(pd.Timestamp(end_dt).timestamp())
-        try:
-            with st.spinner("Fetching from OpenSky…"):
-                raw_df = fetch_opensky_arrivals(
-                    airport=opensky_airport, begin_unix=begin_unix, end_unix=end_unix
-                )
-        except Exception as err:
-            st.error("OpenSky request failed.")
-            st.info(
-                "**Suggested fixes:** use a shorter interval, an older date, "
-                "or switch to the Sample CSV / Upload mode."
+    if dataset_structure == "OpenSky airport arrivals":
+        if not is_opensky_arrival_format(raw_df):
+            st.warning(
+                "The uploaded file does not look like a standard OpenSky arrivals file. "
+                "The converter will still try to process it, but check the output carefully."
             )
-            st.code(str(err))
-            st.stop()
-        if raw_df.empty:
-            st.error("No arrivals returned. Try a different date or airport code.")
-            st.stop()
+
         df = convert_opensky_arrivals_to_dashboard_format(raw_df)
         df, cleaning_report = clean_aviation_data(df)
-        st.sidebar.success(f"Fetched {len(df)} arrivals from OpenSky.")
 
-    elif data_mode == "Synthetic scenario":
-        raw_df = load_synthetic(traffic_mode, n_synthetic_aircraft, scenario_duration, random_seed)
-        df, cleaning_report = clean_aviation_data(raw_df)
-        st.sidebar.success(f"Generated {traffic_mode} synthetic scenario ({len(df)} aircraft).")
+        st.subheader("Converted OpenSky Arrival Data")
+        st.dataframe(df.head(20), use_container_width=True)
 
-    else:  # Sample CSV
-        raw_df = load_sample()
-        df, cleaning_report = clean_aviation_data(raw_df)
-        st.sidebar.info("Using built-in sample dataset.")
+    elif dataset_structure == "Preprocessed ML feature table":
+        st.subheader("Preprocessed ML Feature Table Mode")
+        st.warning(
+            "This mode is under development. For now, use Raw aircraft arrival data or OpenSky airport arrivals."
+        )
+        st.stop()
 
-# Parse timestamps
-for col in ("timestamp", "estimated_arrival_time"):
-    if col in df.columns:
-        df[col] = pd.to_datetime(df[col])
+    else:
+        suggested_mapping = suggest_column_mapping(raw_df)
 
-# ── Feature engineering + models ────────────────────────────────────────────
+        st.subheader("Column Mapping")
+
+        column_mapping = {}
+
+        for standard_col in [
+            "aircraft_id",
+            "timestamp",
+            "distance_to_airport_km",
+            "altitude_ft",
+            "speed_kt",
+            "estimated_arrival_time",
+            "route_angle_deg",
+            "runway",
+        ]:
+            options = ["Not available"] + list(raw_df.columns)
+
+            suggested_value = suggested_mapping.get(standard_col)
+
+            if suggested_value in options:
+                default_index = options.index(suggested_value)
+            else:
+                default_index = 0
+
+            column_mapping[standard_col] = st.selectbox(
+                f"Map column for: {standard_col}",
+                options=options,
+                index=default_index
+            )
+
+        mapped_df = apply_column_mapping(raw_df, column_mapping)
+        df, cleaning_report = clean_aviation_data(mapped_df)
+elif data_mode == "Fetch OpenSky ESSA arrivals":
+    begin_dt = datetime.combine(opensky_start_date, opensky_start_time)
+    end_dt = datetime.combine(opensky_end_date, opensky_end_time)
+
+    begin_unix = int(pd.Timestamp(begin_dt).timestamp())
+    end_unix = int(pd.Timestamp(end_dt).timestamp())
+
+    try:
+        with st.spinner("Fetching OpenSky arrivals..."):
+            raw_df = fetch_opensky_arrivals(
+                airport=opensky_airport,
+                begin_unix=begin_unix,
+                end_unix=end_unix,
+            )
+
+    except Exception as error:
+        st.error(
+            "OpenSky request failed. This may be due to timeout, API throttling, "
+            "or temporary OpenSky unavailability."
+        )
+
+        st.info(
+            """
+            Suggested fixes:
+            1. Try a one-day interval only.
+            2. Try an older date.
+            3. Use the OpenSky sample file upload mode.
+            4. Add OpenSky authentication later for more reliable access.
+            """
+        )
+
+        st.code(str(error))
+        st.stop()
+
+    if raw_df.empty:
+        st.error(
+            "No OpenSky arrivals returned for this airport/date interval. "
+            "Try an older date, a one-day interval, or check the airport code."
+        )
+        st.stop()
+
+    st.sidebar.success(f"Fetched {len(raw_df)} arrivals from OpenSky.")
+
+    st.subheader("Raw OpenSky Arrivals")
+    st.dataframe(raw_df.head(20), use_container_width=True)
+
+    df = convert_opensky_arrivals_to_dashboard_format(raw_df)
+    df, cleaning_report = clean_aviation_data(df)
+
+    st.subheader("Converted OpenSky Arrival Data")
+    st.dataframe(df.head(20), use_container_width=True)
+elif data_mode == "Generate synthetic scenario":
+    raw_df = generate_synthetic_arrivals(
+        scenario=traffic_mode,
+        n_aircraft=n_synthetic_aircraft,
+        duration_minutes=scenario_duration,
+        random_seed=random_seed
+    )
+
+    df, cleaning_report = clean_aviation_data(raw_df)
+    st.sidebar.success(f"Generated {traffic_mode} synthetic scenario.")
+
+else:
+    raw_df = pd.read_csv("data_sample/sample_arrivals.csv")
+    df, cleaning_report = clean_aviation_data(raw_df)
+    st.sidebar.info("Using sample arrival dataset.")
+
+# Convert times if available
+if "timestamp" in df.columns:
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+if "estimated_arrival_time" in df.columns:
+    df["estimated_arrival_time"] = pd.to_datetime(df["estimated_arrival_time"])
+
+# Create 3-minute traffic-complexity features
 features_df = create_time_window_features(df, window_minutes=3)
 
 green_strategy_df, green_schedules = compare_green_arrival_strategies(
-    df, separation_minutes=separation_minutes
+    df,
+    separation_minutes=separation_minutes
 )
 
-ml_model, ml_metrics, confusion_df, predictions_df, feature_importance_df = (
-    train_and_evaluate_model(features_df, model_name=model_choice)
+ml_model, ml_metrics, confusion_df, predictions_df, feature_importance_df = train_and_evaluate_model(
+    features_df,
+    model_name=model_choice
 )
 
 model_comparison_df = compare_models(features_df)
+
 strategy_df = compare_arrival_strategies(features_df)
+# -----------------------------
+# Basic derived metrics
+# -----------------------------
+n_aircraft = len(df)
+avg_distance = round(df["distance_to_airport_km"].mean(), 2)
+avg_altitude = round(df["altitude_ft"].mean(), 0)
+avg_speed = round(df["speed_kt"].mean(), 2)
 
-# ── Derived KPIs ─────────────────────────────────────────────────────────────
-n_aircraft = df["aircraft_id"].nunique() if "aircraft_id" in df.columns else len(df)
-avg_distance = df["distance_to_airport_km"].mean() if "distance_to_airport_km" in df.columns else None
-avg_altitude = df["altitude_ft"].mean() if "altitude_ft" in df.columns else None
-avg_speed = df["speed_kt"].mean() if "speed_kt" in df.columns else None
-
+# Workload score from engineered traffic-complexity features
 workload_score = features_df["complexity_score"].mean()
 latest_workload_label = features_df.iloc[-1]["workload_label"]
-workload_class = {"LOW": "status-low", "MEDIUM": "status-medium", "HIGH": "status-high"}.get(
-    latest_workload_label, "status-medium"
+
+if latest_workload_label == "LOW":
+    workload_label = "LOW"
+    workload_class = "status-low"
+elif latest_workload_label == "MEDIUM":
+    workload_label = "MEDIUM"
+    workload_class = "status-medium"
+else:
+    workload_label = "HIGH"
+    workload_class = "status-high"
+
+# Environmental proxy
+emission_proxy = round((df["distance_to_airport_km"].sum() * df["speed_kt"].mean()) / 1000, 2)
+
+# -----------------------------
+# Metric cards
+# -----------------------------
+col1, col2, col3, col4, col5 = st.columns(5)
+
+with col1:
+    st.markdown(
+        f"""
+        <div class="metric-card">
+            <div class="metric-label">Aircraft</div>
+            <div class="metric-value">{n_aircraft}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+with col2:
+    st.markdown(
+        f"""
+        <div class="metric-card">
+            <div class="metric-label">Avg Distance</div>
+            <div class="metric-value">{avg_distance} km</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+with col3:
+    st.markdown(
+        f"""
+        <div class="metric-card">
+            <div class="metric-label">Avg Altitude</div>
+            <div class="metric-value">{avg_altitude:.0f} ft</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+with col4:
+    st.markdown(
+        f"""
+        <div class="metric-card">
+            <div class="metric-label">Emission Proxy</div>
+            <div class="metric-value">{emission_proxy}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+with col5:
+    st.markdown(
+        f"""
+        <div class="metric-card">
+            <div class="metric-label">Predicted Workload</div>
+            <div class="metric-value"><span class="{workload_class}">{workload_label}</span></div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+# -----------------------------
+# Tabs
+# -----------------------------
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    [
+        "Phase 1 Demo",
+        "Data & Scenario",
+        "Green Arrival Optimizer",
+        "ML Workload Intelligence",
+        "LLM Explanation Assistant",
+        "Research Report"
+    ]
 )
 
-cdo_rate = compute_cdo_rate(df)
-fuel_saved = compute_fuel_saved_kg(df)
-emission_proxy = round(
-    (df["distance_to_airport_km"].sum() * df["speed_kt"].mean()) / 1000, 2
-) if avg_distance and avg_speed else 0.0
-
-# ── Global KPI strip ─────────────────────────────────────────────────────────
-cols = st.columns(5)
-kpi_definitions = [
-    ("CDO Rate", f"{cdo_rate}%", "of arrivals on green descent", "green"),
-    ("Flights", f"{n_aircraft:,}", "in current scenario", "white"),
-    ("Avg Altitude", f"{avg_altitude:,.0f} ft" if avg_altitude else "N/A", "arrival state", "blue"),
-    ("Fuel Saved", f"{fuel_saved:,.0f} kg" if fuel_saved else "N/A", "vs. step-down baseline", "amber"),
-    ("Workload", f"<span class='{workload_class}'>{latest_workload_label}</span>", "predicted level", "red"),
-]
-for col, (label, value, subtitle, color) in zip(cols, kpi_definitions):
-    with col:
-        kpi_card(label, value, subtitle, color)
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ── Tabs ─────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📡 Phase 1 — Traffic View",
-    "🗂 Data & Diagnostics",
-    "🌿 Green Arrival Optimizer",
-    "🤖 ML Workload Model",
-    "💬 Research Assistant",
-    "📄 Report",
-])
-
-# ════════════════════════════════════════════════════════════════════════════
-# TAB 1 — Phase 1 Demo
-# ════════════════════════════════════════════════════════════════════════════
+# -----------------------------
+# Tab 1
+# -----------------------------
 with tab1:
     small_note(
-        "Phase 1 — Real or sample ESSA arrival data, arrival-region trajectory features, "
-        "and environmental evidence. ML workload and LLM explanation are later phases."
+        """
+        This demo shows Phase 1 of the research idea: using real Swedish air-traffic data
+        to evaluate greener arrival-management indicators for Stockholm Arlanda.
+        The current version focuses on data processing, arrival-region trajectory features,
+        and environmental evidence. ML workload and LLM explanation are kept as later phases.
+        """
     )
 
-    left, right = st.columns([1.6, 1])
+    # Basic KPI values
+    n_flights = df["aircraft_id"].nunique() if "aircraft_id" in df.columns else len(df)
+    n_rows = len(df)
 
-    with left:
-        with panel("Arrival traffic map"):
-            if {"lat", "lon"}.issubset(df.columns):
-                map_df = df.dropna(subset=["lat", "lon"])
-                if len(map_df) > 3000:
-                    map_df = map_df.sample(3000, random_state=42)
-                st.map(map_df, latitude="lat", longitude="lon", size=8, use_container_width=True)
-            else:
-                st.info(
-                    "Map view activates when the dataset contains **lat** and **lon** columns. "
-                    "Upload a SCAT trajectory file to enable it."
-                )
+    avg_distance = (
+        df["distance_to_airport_km"].mean()
+        if "distance_to_airport_km" in df.columns
+        else None
+    )
 
-    with right:
-        with panel("Arrival list"):
-            display_cols = [
-                c for c in
-                ["aircraft_id", "adep", "aircraft_type", "runway", "star",
-                 "distance_to_airport_km", "altitude_ft", "speed_kt"]
-                if c in df.columns
+    avg_altitude = (
+        df["altitude_ft"].mean()
+        if "altitude_ft" in df.columns
+        else None
+    )
+
+    avg_speed = (
+        df["speed_kt"].mean()
+        if "speed_kt" in df.columns
+        else None
+    )
+
+    runway_count = (
+        df["runway"].nunique()
+        if "runway" in df.columns
+        else "N/A"
+    )
+
+    st.markdown('<div class="kpi-strip">', unsafe_allow_html=True)
+
+    kpi_card(
+        "Flights analysed",
+        f"{n_flights:,}",
+        "SCAT ESSA arrivals",
+        "green",
+    )
+
+    kpi_card(
+        "Data rows",
+        f"{n_rows:,}",
+        "loaded records",
+        "white",
+    )
+
+    kpi_card(
+        "Avg distance",
+        f"{avg_distance:.1f} km" if avg_distance is not None else "N/A",
+        "to Stockholm Arlanda",
+        "blue",
+    )
+
+    kpi_card(
+        "Avg altitude",
+        f"{avg_altitude:,.0f} ft" if avg_altitude is not None else "N/A",
+        "arrival state",
+        "amber",
+    )
+
+    kpi_card(
+        "Runways",
+        f"{runway_count}",
+        "detected in data",
+        "red",
+    )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    left_col, right_col = st.columns([1.6, 1])
+
+    with left_col:
+        st.markdown('<div class="phase-panel">', unsafe_allow_html=True)
+        panel_title("Arrival traffic view")
+
+        if {"lat", "lon"}.issubset(df.columns):
+            map_df = df.dropna(subset=["lat", "lon"]).copy()
+
+            if len(map_df) > 3000:
+                map_df = map_df.sample(3000, random_state=42)
+
+            st.map(
+                map_df,
+                latitude="lat",
+                longitude="lon",
+                size=8,
+                use_container_width=True,
+            )
+        else:
+            st.info(
+                "Map view is available when the trajectory file contains lat/lon columns. "
+                "Upload scat_essa_trajectory_points_200.csv to activate it."
+            )
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with right_col:
+        st.markdown('<div class="phase-panel">', unsafe_allow_html=True)
+        panel_title("Arrival list")
+
+        display_cols = [
+            col for col in [
+                "aircraft_id",
+                "adep",
+                "aircraft_type",
+                "runway",
+                "star",
+                "distance_to_airport_km",
+                "altitude_ft",
+                "speed_kt",
             ]
-            if display_cols:
-                arrival_list = df[display_cols].copy()
-                if "aircraft_id" in arrival_list.columns:
-                    arrival_list = arrival_list.drop_duplicates("aircraft_id")
-                st.dataframe(arrival_list.head(25), use_container_width=True, hide_index=True)
-            else:
-                st.info("No standard arrival columns found in the current dataset.")
+            if col in df.columns
+        ]
 
-    b1, b2, b3 = st.columns(3)
+        if display_cols:
+            arrival_list = df[display_cols].copy()
 
-    with b1:
-        with panel("Dataset evidence"):
+            if "aircraft_id" in arrival_list.columns:
+                arrival_list = arrival_list.drop_duplicates("aircraft_id")
+
+            st.dataframe(
+                arrival_list.head(20),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("No arrival-list columns found in the current dataset.")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    bottom1, bottom2, bottom3 = st.columns(3)
+
+    with bottom1:
+        st.markdown('<div class="phase-panel">', unsafe_allow_html=True)
+        panel_title("Dataset evidence")
+        st.markdown(
+            """
+            **Source:** SCAT Swedish Civil Air Traffic Control dataset  
+            **Airport:** Stockholm Arlanda / ESSA  
+            **Current demo scale:** 200-flight sample  
+            **Purpose:** arrival-region green strategy prototype
+            """
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with bottom2:
+        st.markdown('<div class="phase-panel">', unsafe_allow_html=True)
+        panel_title("Environmental evidence")
+
+        if "low_altitude_level_time_min" in df.columns:
+            value = df["low_altitude_level_time_min"].sum()
+            st.metric("Low-altitude level time", f"{value:.1f} min")
+        elif "estimated_co2_kg" in df.columns:
+            value = df["estimated_co2_kg"].sum()
+            st.metric("Estimated CO₂", f"{value:,.0f} kg")
+        else:
             st.markdown(
-                "**Source:** SCAT / OpenSky / synthetic  \n"
-                "**Airport:** Stockholm Arlanda / ESSA  \n"
-                "**Scale:** production-ready (up to thousands of flights)  \n"
-                "**Purpose:** arrival-region green strategy research"
+                """
+                Environmental evidence will use trajectory-derived indicators such as
+                track distance, level-flight time, and estimated fuel/CO₂.
+                """
             )
 
-    with b2:
-        with panel("Environmental evidence"):
-            if "low_altitude_level_time_min" in df.columns:
-                st.metric("Low-altitude level time", f"{df['low_altitude_level_time_min'].sum():.1f} min")
-            elif "estimated_co2_kg" in df.columns:
-                st.metric("Estimated CO₂", f"{df['estimated_co2_kg'].sum():,.0f} kg")
-            else:
-                st.markdown(
-                    f"**Emission proxy:** {emission_proxy}  \n"
-                    "Derived from distance × speed — lower is better.  \n"
-                    "Replace with BADA/OpenAP fuel-burn model for real values."
-                )
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    with b3:
-        with panel("Research roadmap"):
-            st.markdown(
-                "**Phase 1 (now):** Data pipeline, trajectory features, env. proxies  \n"
-                "**Phase 2:** ML workload prediction with labelled ATCO data  \n"
-                "**Phase 3:** LLM explanation and rolling-horizon optimizer"
-            )
+    with bottom3:
+        st.markdown('<div class="phase-panel">', unsafe_allow_html=True)
+        panel_title("Research extension")
+        st.markdown(
+            """
+            **Phase 2:** ML workload prediction  
+            **Phase 3:** LLM explanation assistant  
+            **Future:** rolling-horizon green arrival optimization
+            """
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
 
     warning_note(
-        "Research prototype — not an operational ATC system. "
-        "Environmental and workload values are proxy metrics."
+        """
+        This is a research prototype. The current demo uses historic SCAT data and
+        estimated environmental indicators. It should not be interpreted as a live
+        operational ATC decision-support system.
+        """
     )
 
-    with st.expander("Show raw data sample (first 50 rows)"):
+    with st.expander("Show technical data sample"):
         st.dataframe(df.head(50), use_container_width=True)
 
-# ════════════════════════════════════════════════════════════════════════════
-# TAB 2 — Data & Diagnostics
-# ════════════════════════════════════════════════════════════════════════════
+# -----------------------------
+# Tab 2
+# -----------------------------
 with tab2:
-    st.subheader("Data & Diagnostics")
-    with st.expander("Data quality report"):
-        st.json(cleaning_report)
-    with st.expander("Processed arrival data"):
-        st.dataframe(df, use_container_width=True)
-    with st.expander("Engineered traffic-complexity features"):
-        st.dataframe(features_df, use_container_width=True)
+    st.subheader("Data & Scenario")
 
-    # Complexity score over time
-    if "time_window" in features_df.columns:
-        fig = px.line(
-            features_df,
-            x="time_window",
-            y="complexity_score",
-            color="workload_label",
-            title="Traffic complexity over time",
-            color_discrete_map={"LOW": "#34d399", "MEDIUM": "#fbbf24", "HIGH": "#f87171"},
-        )
-        fig.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(fig, use_container_width=True)
-
-# ════════════════════════════════════════════════════════════════════════════
-# TAB 3 — Green Arrival Optimizer
-# ════════════════════════════════════════════════════════════════════════════
-with tab3:
-    st.subheader("Green Arrival Optimizer")
     st.markdown(
-        "Compares four arrival sequencing strategies on delay, holding, "
-        "extra distance, level-flight time, and CO₂ proxy."
+        """
+        This section shows the loaded dataset, cleaning diagnostics, and scenario setup.
+        """
     )
 
+    with st.expander("Show data quality report"):
+        st.json(cleaning_report)
+
+    with st.expander("Show processed arrival data"):
+        st.dataframe(df, use_container_width=True)
+
+    with st.expander("Show engineered traffic-complexity features"):
+        st.dataframe(features_df, use_container_width=True)
+# -----------------------------
+# Tab 3
+# -----------------------------
+with tab3:
+    st.subheader("Green Arrival Optimization")
+
+    st.markdown(
+        """
+        This section compares simplified arrival sequencing strategies for environmental performance.
+        The current module focuses on delay, holding, extra-distance, level-flight, and emissions-proxy metrics.
+        """
+    )
+
+    st.subheader("Strategy-Level Results")
     st.dataframe(green_strategy_df, use_container_width=True)
 
-    best = green_strategy_df.iloc[0]
+    best_green_strategy = green_strategy_df.iloc[0]["strategy"]
+    best_green_score = green_strategy_df.iloc[0]["balanced_score"]
+
     st.success(
-        f"Best strategy: **{best['strategy']}** "
-        f"(balanced score = {best['balanced_score']:.3f})"
+        f"Best green-arrival strategy in this scenario: {best_green_strategy} "
+        f"with balanced score = {best_green_score:.3f}"
     )
 
     col_a, col_b = st.columns(2)
+
     with col_a:
-        fig_bar = px.bar(
+        fig_green_bar = px.bar(
             green_strategy_df,
             x="strategy",
             y=["total_delay_min", "holding_proxy_min", "environmental_cost"],
             barmode="group",
-            title="Delay, Holding, and Environmental Cost by Strategy",
-            color_discrete_sequence=["#60a5fa", "#fbbf24", "#f87171"],
+            title="Delay, Holding, and Emission Proxy by Strategy"
         )
-        fig_bar.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(fig_bar, use_container_width=True)
+        fig_green_bar.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_green_bar, use_container_width=True)
 
     with col_b:
-        fig_scatter = px.scatter(
+        fig_green_scatter = px.scatter(
             green_strategy_df,
             x="environmental_cost",
             y="total_delay_min",
             size="delayed_aircraft",
             color="strategy",
-            title="Environmental Cost vs Total Delay",
+            title="Environment Cost vs Total Delay"
         )
-        fig_scatter.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        fig_green_scatter.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_green_scatter, use_container_width=True)
 
-    st.subheader("Aircraft-level schedule")
-    selected_strategy = st.selectbox("Inspect schedule for", options=list(green_schedules.keys()))
-    schedule_cols = [
-        c for c in [
-            "aircraft_id", "eta_minutes", "scheduled_landing_min", "delay_min",
-            "holding_proxy_min", "extra_distance_proxy_km", "level_flight_proxy_min",
-            "fuel_burn_proxy", "co2_proxy", "environmental_cost",
-            "descent_inefficiency_score", "speed_inefficiency_score", "runway",
-        ] if c in green_schedules[selected_strategy].columns
-    ]
-    st.dataframe(green_schedules[selected_strategy][schedule_cols], use_container_width=True)
+    st.subheader("Aircraft-Level Schedule")
 
-    fig_sched = px.line(
-        green_schedules[selected_strategy],
+    selected_schedule_strategy = st.selectbox(
+        "Select strategy schedule to inspect",
+        options=list(green_schedules.keys())
+    )
+
+    st.dataframe(
+        green_schedules[selected_schedule_strategy][
+            [
+                "aircraft_id",
+                "eta_minutes",
+                "scheduled_landing_min",
+                "delay_min",
+                "holding_proxy_min",
+                "extra_distance_proxy_km",
+                "level_flight_proxy_min",
+                "emission_proxy",
+                "fuel_burn_proxy",
+                "co2_proxy",
+                "environmental_cost",
+                "descent_inefficiency_score",
+                "speed_inefficiency_score",
+                "runway",
+            ]
+        ],
+        use_container_width=True
+    )
+
+    fig_schedule = px.line(
+        green_schedules[selected_schedule_strategy],
         x="scheduled_landing_min",
         y="delay_min",
         markers=True,
         hover_name="aircraft_id",
-        title=f"Delay profile — {selected_strategy}",
+        title=f"Aircraft Delay Profile: {selected_schedule_strategy}"
     )
-    fig_sched.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig_sched, use_container_width=True)
+    fig_schedule.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)"
+    )
+    st.plotly_chart(fig_schedule, use_container_width=True)
 
     st.info(
-        "Lower environmental cost is better, but a strategy is only suitable if delay "
-        "remains acceptable. This module evaluates green efficiency before adding "
-        "ATCO workload impact in Phase 2."
+        """
+        Interpretation: lower emission proxy is better, but a strategy must also maintain acceptable delay.
+        This first module evaluates green-arrival efficiency before adding workload impact in a later phase.
+        """
     )
-
-# ════════════════════════════════════════════════════════════════════════════
-# TAB 4 — ML Workload Model
-# ════════════════════════════════════════════════════════════════════════════
+# -----------------------------
+# Tab 4
+# -----------------------------
 with tab4:
     st.info(
-        "Phase 2 extension: workload-risk prediction from traffic-complexity features. "
-        "Labels are currently proxy-derived, not from real ATCO ratings."
+    "Phase 2 extension: this module evaluates workload-risk prediction using "
+    "traffic-complexity features. It is not the main green-optimization module yet."
     )
-    st.subheader("Model comparison")
+    st.subheader("Model Explainability")
+
+    st.markdown(
+        """
+        This section compares workload prediction models and shows which
+        traffic-complexity features are most influential in the current model.
+        """
+    )
+
+    st.subheader("Model Comparison")
+
     st.dataframe(model_comparison_df, use_container_width=True)
 
-    fig_cmp = px.bar(
+    fig_model_comparison = px.bar(
         model_comparison_df,
-        x="model", y="macro_f1",
-        title="Macro F1 by model",
-        color="model",
+        x="model",
+        y="macro_f1",
+        title="Model Comparison by Macro F1 Score"
     )
-    fig_cmp.update_layout(template="plotly_dark", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig_cmp, use_container_width=True)
+    fig_model_comparison.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)"
+    )
+    st.plotly_chart(fig_model_comparison, use_container_width=True)
 
-    best_model = model_comparison_df.iloc[0]
-    st.success(f"Best model: **{best_model['model']}** (macro F1 = {best_model['macro_f1']:.3f})")
+    best_model_name = model_comparison_df.iloc[0]["model"]
+    best_macro_f1 = model_comparison_df.iloc[0]["macro_f1"]
 
-    st.subheader("Feature importance")
-    fig_imp = px.bar(
+    st.success(
+        f"Best model in current scenario: {best_model_name} "
+        f"with macro F1 = {best_macro_f1:.3f}"
+    )
+
+    st.subheader("Feature Importance")
+
+    st.dataframe(feature_importance_df, use_container_width=True)
+
+    fig_importance = px.bar(
         feature_importance_df,
-        x="importance", y="feature",
+        x="importance",
+        y="feature",
         orientation="h",
-        title=f"Feature importance — {model_choice}",
+        title=f"Feature Importance: {model_choice}"
     )
-    fig_imp.update_layout(
+    fig_importance.update_layout(
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        yaxis={"categoryorder": "total ascending"},
+        yaxis={"categoryorder": "total ascending"}
     )
-    st.plotly_chart(fig_imp, use_container_width=True)
-
-    st.subheader("Confusion matrix")
-    st.dataframe(confusion_df, use_container_width=True)
+    st.plotly_chart(fig_importance, use_container_width=True)
 
     st.info(
-        "For Random Forest / Gradient Boosting, importance comes from the model. "
-        "For kNN / SVC, feature variance is used as a placeholder. "
-        "A future version will use SHAP values."
+        """
+        For Random Forest and Gradient Boosting, feature importance comes from the model.
+        For kNN and SVC, this prototype currently uses feature variance as a placeholder.
+        A future version can use permutation importance or SHAP.
+        """
     )
 
-# ════════════════════════════════════════════════════════════════════════════
-# TAB 5 — Research Assistant
-# ════════════════════════════════════════════════════════════════════════════
+# -----------------------------
+# Tab 5
+# -----------------------------
 with tab5:
-    st.info("This assistant explains dashboard outputs — it does not make ATC decisions.")
-    st.subheader("Research assistant")
+    st.info(
+    "This assistant explains dashboard outputs. It does not make operational ATC decisions."
+    )
+    st.subheader("LLM Research Assistant")
+
+    st.markdown(
+        """
+        This assistant explains the dashboard results using the current scenario data.
+        
+        Current version: **rule-based explanation assistant**  
+        Future version: OpenAI API / local LLM integration
+        """
+    )
 
     explanation_mode = st.selectbox(
-        "Mode",
-        ["Rule-based (no API key needed)", "Groq Llama (free API key required)"],
+        "Explanation mode",
+        ["Rule-based assistant", "OpenAI LLM assistant coming later", "Free Groq Llama assistant"]
     )
 
     user_question = st.text_area(
         "Ask a question about the current scenario",
-        placeholder="Example: Why is workload predicted as HIGH?",
-        height=100,
+        placeholder="Example: Why is the workload predicted as high?"
     )
 
-    top_features = list(feature_importance_df["feature"].head(4)) if not feature_importance_df.empty else [
-        "n_aircraft", "n_tight_arrival_gaps", "std_speed_kt", "std_altitude_ft"
+    top_features = [
+        "number of aircraft",
+        "arrival spacing",
+        "speed variability",
+        "altitude variability"
     ]
 
     scenario_context = {
-        "number_of_aircraft": int(n_aircraft),
-        "average_distance_km": float(avg_distance) if avg_distance else None,
-        "average_altitude_ft": float(avg_altitude) if avg_altitude else None,
-        "emission_proxy": float(emission_proxy),
-        "workload_label": latest_workload_label,
-        "workload_score": float(round(workload_score, 3)),
-        "selected_ml_model": model_choice,
-        "model_metrics": {
-            "accuracy": float(round(ml_metrics["accuracy"], 3)),
-            "macro_f1": float(round(ml_metrics["macro_f1"], 3)),
-        },
-        "best_strategy": strategy_df.iloc[0].to_dict() if not strategy_df.empty else {},
-        "top_features": top_features,
-    }
+    "number_of_aircraft": int(n_aircraft),
+    "average_distance_km": float(avg_distance),
+    "average_altitude_ft": float(avg_altitude),
+    "emission_proxy": float(emission_proxy),
+    "workload_label": str(workload_label),
+    "workload_score": float(round(workload_score, 3)),
+    "selected_ml_model": str(model_choice),
+    "model_metrics": {
+        "accuracy": float(round(ml_metrics["accuracy"], 3)),
+        "macro_precision": float(round(ml_metrics["macro_precision"], 3)),
+        "macro_recall": float(round(ml_metrics["macro_recall"], 3)),
+        "macro_f1": float(round(ml_metrics["macro_f1"], 3)),
+        "evaluation_mode": ml_metrics["evaluation_mode"],
+    },
+    "best_strategy": strategy_df.iloc[0].to_dict(),
+    "top_features": top_features,
+}
 
-    if st.button("Generate explanation", type="primary"):
-        if not user_question.strip():
+    if st.button("Generate explanation"):
+        if user_question.strip() == "":
             st.error("Please enter a question.")
-        elif explanation_mode.startswith("Rule-based"):
-            answer = generate_rule_based_explanation(
-                question=user_question,
-                n_aircraft=n_aircraft,
-                avg_distance=avg_distance or 0,
-                avg_altitude=avg_altitude or 0,
-                emission_proxy=emission_proxy,
-                workload_label=latest_workload_label,
-                workload_score=workload_score,
-                top_features=top_features,
-                strategy_df=strategy_df,
-            )
-            st.markdown("### Answer")
-            st.markdown(answer)
         else:
-            try:
-                groq_api_key = st.secrets["GROQ_API_KEY"]
-                answer = generate_groq_explanation(
+            if explanation_mode == "Rule-based assistant":
+                answer = generate_rule_based_explanation(
                     question=user_question,
-                    scenario_context=scenario_context,
-                    api_key=groq_api_key,
+                    n_aircraft=n_aircraft,
+                    avg_distance=avg_distance,
+                    avg_altitude=avg_altitude,
+                    emission_proxy=emission_proxy,
+                    workload_label=workload_label,
+                    workload_score=workload_score,
+                    top_features=top_features,
+                    strategy_df=strategy_df
                 )
-                st.markdown("### Groq Llama answer")
-                st.markdown(answer)
-            except KeyError:
-                st.error(
-                    "Add **GROQ_API_KEY** to Streamlit Cloud secrets "
-                    "(Settings → Secrets) or use the rule-based mode."
-                )
-            except Exception as err:
-                st.error(f"Groq request failed: {err}")
 
-# ════════════════════════════════════════════════════════════════════════════
-# TAB 6 — Report
-# ════════════════════════════════════════════════════════════════════════════
+                st.markdown("### Assistant Answer")
+                st.markdown(answer)
+
+            else:
+                try:
+                    groq_api_key = st.secrets["GROQ_API_KEY"]
+
+                    answer = generate_groq_explanation(
+                        question=user_question,
+                        scenario_context=scenario_context,
+                        api_key=groq_api_key
+                    )
+
+                    st.markdown("### Groq Llama Assistant Answer")
+                    st.markdown(answer)
+
+                except KeyError:
+                    st.error(
+                        "Groq API key is missing. Add GROQ_API_KEY in Streamlit Cloud secrets, "
+                        "or use the rule-based assistant."
+                    )
+
+                except Exception as error:
+                    st.error(f"Groq assistant failed: {error}")
+# -----------------------------
+# Tab 6
+# -----------------------------
 with tab6:
-    st.subheader("Downloadable scenario report")
+    st.subheader("Downloadable Scenario Report")
+
+    st.markdown(
+        """
+        This section generates a short research-style report from the current dashboard state.
+        The report can be downloaded and included as supporting material in a portfolio or project documentation.
+        """
+    )
+
     report_text = generate_scenario_report(
         n_aircraft=n_aircraft,
-        avg_distance=avg_distance or 0,
-        avg_altitude=avg_altitude or 0,
-        avg_speed=avg_speed or 0,
+        avg_distance=avg_distance,
+        avg_altitude=avg_altitude,
+        avg_speed=avg_speed,
         emission_proxy=emission_proxy,
-        workload_label=latest_workload_label,
+        workload_label=workload_label,
         workload_score=workload_score,
         model_choice=model_choice,
         ml_metrics=ml_metrics,
         strategy_df=strategy_df,
         model_comparison_df=model_comparison_df,
     )
-    st.text_area("Preview", report_text, height=500)
+
+    st.text_area(
+        "Generated report preview",
+        report_text,
+        height=500
+    )
+
     st.download_button(
-        "⬇ Download report (.txt)",
+        label="Download Scenario Report",
         data=report_text,
-        file_name=f"essa_green_arrivals_report_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-        mime="text/plain",
+        file_name="scenario_report.txt",
+        mime="text/plain"
     )
