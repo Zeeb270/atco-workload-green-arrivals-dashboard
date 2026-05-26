@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-
+from src.environmental_metrics import add_environmental_metrics, summarize_environmental_metrics
 
 def prepare_arrival_jobs(df, separation_minutes=3.0):
     """
@@ -190,11 +190,15 @@ def assign_landing_times(sequence_df, separation_minutes=3.0):
 
     # Environmental proxy:
     # simplified cost based on holding, extra distance, and low-altitude level flight.
+        # Legacy simple emission proxy kept for comparison.
     scheduled["emission_proxy"] = (
         1.00 * scheduled["holding_proxy_min"]
         + 0.08 * scheduled["extra_distance_proxy_km"]
         + 0.70 * scheduled["level_flight_proxy_min"]
     )
+
+    # Add improved environmental metrics.
+    scheduled = add_environmental_metrics(scheduled)
 
     return scheduled
 
@@ -215,7 +219,9 @@ def evaluate_strategy(scheduled_df, strategy_name):
 
     delayed_aircraft = int((scheduled_df["delay_min"] > 0.1).sum())
 
-    return {
+    env_summary = summarize_environmental_metrics(scheduled_df)
+
+    result = {
         "strategy": strategy_name,
         "total_delay_min": round(total_delay, 2),
         "avg_delay_min": round(avg_delay, 2),
@@ -227,7 +233,9 @@ def evaluate_strategy(scheduled_df, strategy_name):
         "delayed_aircraft": delayed_aircraft,
     }
 
+    result.update(env_summary)
 
+    return result
 def compare_green_arrival_strategies(df, separation_minutes=3.0):
     """
     Compare arrival strategies for environmental performance.
@@ -257,7 +265,7 @@ def compare_green_arrival_strategies(df, separation_minutes=3.0):
     strategy_summary = pd.DataFrame(results)
 
     # Lower is better.
-    for col in ["total_delay_min", "emission_proxy"]:
+    for col in ["total_delay_min", "environmental_cost"]:
         min_val = strategy_summary[col].min()
         max_val = strategy_summary[col].max()
 
@@ -269,8 +277,8 @@ def compare_green_arrival_strategies(df, separation_minutes=3.0):
             strategy_summary[f"normalized_{col}"] = 0.0
 
     strategy_summary["balanced_score"] = (
-        0.45 * strategy_summary["normalized_total_delay_min"]
-        + 0.55 * strategy_summary["normalized_emission_proxy"]
+        0.40 * strategy_summary["normalized_total_delay_min"]
+        + 0.60 * strategy_summary["normalized_environmental_cost"]
     )
 
     strategy_summary = strategy_summary.sort_values(
