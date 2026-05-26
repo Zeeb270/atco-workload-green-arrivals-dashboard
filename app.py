@@ -43,11 +43,6 @@ hero()
 # -----------------------------
 # Header
 # -----------------------------
-st.markdown('<div class="main-title">✈️ ATCO Workload-Aware Green Arrival Dashboard</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="subtitle">Machine-learning prototype for sustainable airport arrival operations, controller workload prediction, and LLM-based operational explanation.</div>',
-    unsafe_allow_html=True
-)
 
 # -----------------------------
 # Sidebar
