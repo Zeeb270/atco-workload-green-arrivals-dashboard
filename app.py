@@ -300,10 +300,57 @@ else:
 
 # Convert times if available
 if "timestamp" in df.columns:
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
 
 if "estimated_arrival_time" in df.columns:
-    df["estimated_arrival_time"] = pd.to_datetime(df["estimated_arrival_time"])
+    df["estimated_arrival_time"] = pd.to_datetime(
+        df["estimated_arrival_time"],
+        errors="coerce"
+    )
+
+# -------------------------------------------------
+# Compatibility layer for SCAT trajectory datasets
+# -------------------------------------------------
+# The trajectory-preserving SCAT file uses heading_deg,
+# while the older dashboard pipeline expects route_angle_deg.
+if "route_angle_deg" not in df.columns and "heading_deg" in df.columns:
+    df["route_angle_deg"] = df["heading_deg"]
+
+# The trajectory file may not contain estimated_arrival_time.
+# For Phase 1 demo use, use the last observed timestamp per aircraft.
+if "estimated_arrival_time" not in df.columns:
+    if "aircraft_id" in df.columns and "timestamp" in df.columns:
+        df["estimated_arrival_time"] = df.groupby("aircraft_id")["timestamp"].transform("max")
+    elif "flight_id" in df.columns and "timestamp" in df.columns:
+        df["estimated_arrival_time"] = df.groupby("flight_id")["timestamp"].transform("max")
+    elif "timestamp" in df.columns:
+        df["estimated_arrival_time"] = df["timestamp"]
+
+# If runway is missing, keep the pipeline alive.
+if "runway" not in df.columns:
+    df["runway"] = "UNKNOWN"
+
+# Remove rows that cannot be used by the older feature-engineering pipeline.
+required_for_features = [
+    "aircraft_id",
+    "timestamp",
+    "distance_to_airport_km",
+    "altitude_ft",
+    "speed_kt",
+    "estimated_arrival_time",
+    "route_angle_deg",
+]
+
+missing_required = [col for col in required_for_features if col not in df.columns]
+
+if missing_required:
+    st.error(
+        "This dataset is missing required columns for the legacy ML/feature pipeline: "
+        + ", ".join(missing_required)
+    )
+    st.stop()
+
+df = df.dropna(subset=required_for_features)
 
 # Create 3-minute traffic-complexity features
 features_df = create_time_window_features(df, window_minutes=3)
