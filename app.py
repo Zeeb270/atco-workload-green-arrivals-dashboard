@@ -19,6 +19,9 @@ from src.opensky_adapter import (
     convert_opensky_arrivals_to_dashboard_format,
     is_opensky_arrival_format,
 )
+from datetime import datetime, time
+from src.opensky_fetcher import fetch_opensky_arrivals
+
 
 st.set_page_config(
     page_title="ATCO Workload-Aware Green Arrival Dashboard",
@@ -139,9 +142,34 @@ dataset_structure = st.sidebar.radio(
 
 data_mode = st.sidebar.radio(
     "Data source",
-    ["Use sample CSV", "Generate synthetic scenario", "Upload file"]
+    ["Use sample CSV", "Generate synthetic scenario", "Upload file",
+        "Fetch OpenSky ESSA arrivals"]
 )
+opensky_airport = "ESSA"
+opensky_start_date = None
+opensky_end_date = None
 
+if data_mode == "Fetch OpenSky ESSA arrivals":
+    st.sidebar.markdown("### OpenSky ESSA Arrivals")
+
+    opensky_airport = st.sidebar.text_input(
+        "Airport ICAO code",
+        value="ESSA"
+    )
+
+    opensky_start_date = st.sidebar.date_input(
+        "Start date",
+        value=pd.Timestamp.today().date() - pd.Timedelta(days=7)
+    )
+
+    opensky_end_date = st.sidebar.date_input(
+        "End date",
+        value=pd.Timestamp.today().date() - pd.Timedelta(days=6)
+    )
+
+    st.sidebar.caption(
+        "Use dates from yesterday or earlier. OpenSky airport arrivals are updated after nightly batch processing."
+    )
 traffic_mode = st.sidebar.selectbox(
     "Traffic scenario",
     ["Light", "Moderate", "Heavy"]
@@ -258,7 +286,37 @@ if data_mode == "Upload file" and uploaded_file is not None:
 
         mapped_df = apply_column_mapping(raw_df, column_mapping)
         df, cleaning_report = clean_aviation_data(mapped_df)
+elif data_mode == "Fetch OpenSky ESSA arrivals":
+    begin_dt = datetime.combine(opensky_start_date, time.min)
+    end_dt = datetime.combine(opensky_end_date, time.min)
 
+    begin_unix = int(pd.Timestamp(begin_dt).timestamp())
+    end_unix = int(pd.Timestamp(end_dt).timestamp())
+
+    with st.spinner("Fetching OpenSky arrivals..."):
+        raw_df = fetch_opensky_arrivals(
+            airport=opensky_airport,
+            begin_unix=begin_unix,
+            end_unix=end_unix,
+        )
+
+    if raw_df.empty:
+        st.error(
+            "No OpenSky arrivals returned for this airport/date interval. "
+            "Try an older date, a one-day interval, or check the airport code."
+        )
+        st.stop()
+
+    st.sidebar.success(f"Fetched {len(raw_df)} arrivals from OpenSky.")
+
+    st.subheader("Raw OpenSky Arrivals")
+    st.dataframe(raw_df.head(20), use_container_width=True)
+
+    df = convert_opensky_arrivals_to_dashboard_format(raw_df)
+    df, cleaning_report = clean_aviation_data(df)
+
+    st.subheader("Converted OpenSky Arrival Data")
+    st.dataframe(df.head(20), use_container_width=True)
 elif data_mode == "Generate synthetic scenario":
     raw_df = generate_synthetic_arrivals(
         scenario=traffic_mode,
