@@ -293,6 +293,7 @@ elif data_mode == "Fetch OpenSky ESSA arrivals":
     begin_unix = int(pd.Timestamp(begin_dt).timestamp())
     end_unix = int(pd.Timestamp(end_dt).timestamp())
 
+    try:
     with st.spinner("Fetching OpenSky arrivals..."):
         raw_df = fetch_opensky_arrivals(
             airport=opensky_airport,
@@ -300,6 +301,25 @@ elif data_mode == "Fetch OpenSky ESSA arrivals":
             end_unix=end_unix,
         )
 
+except Exception as error:
+    st.error(
+        "OpenSky request failed. This may be due to timeout, API throttling, "
+        "or temporary OpenSky unavailability."
+    )
+
+    st.info(
+        """
+        Suggested fixes:
+        1. Try a one-day interval only.
+        2. Try an older date.
+        3. Use the OpenSky sample file upload mode.
+        4. Add OpenSky authentication later for more reliable access.
+        """
+    )
+
+    st.code(str(error))
+
+    st.stop()
     if raw_df.empty:
         st.error(
             "No OpenSky arrivals returned for this airport/date interval. "
