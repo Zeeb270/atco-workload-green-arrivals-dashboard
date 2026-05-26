@@ -15,6 +15,10 @@ from src.data_preprocessing import (
     validate_required_columns,
 )
 from src.green_arrival_optimizer import compare_green_arrival_strategies
+from src.opensky_adapter import (
+    convert_opensky_arrivals_to_dashboard_format,
+    is_opensky_arrival_format,
+)
 
 st.set_page_config(
     page_title="ATCO Workload-Aware Green Arrival Dashboard",
@@ -124,9 +128,18 @@ st.sidebar.title("Control Panel")
 st.sidebar.markdown("Upload arrival traffic data or use the built-in sample dataset.")
 
 
+dataset_structure = st.sidebar.radio(
+    "Dataset structure",
+    [
+        "Raw aircraft arrival data",
+        "OpenSky airport arrivals",
+        "Preprocessed ML feature table"
+    ]
+)
+
 data_mode = st.sidebar.radio(
     "Data source",
-    ["Use sample CSV", "Generate synthetic scenario", "Upload CSV"]
+    ["Use sample CSV", "Generate synthetic scenario", "Upload file"]
 )
 
 traffic_mode = st.sidebar.selectbox(
@@ -185,7 +198,22 @@ if data_mode == "Upload CSV":
     )
 
 if data_mode == "Upload CSV" and uploaded_file is not None:
-    raw_df = load_uploaded_data(uploaded_file)
+    raw_df = load_uploaded_data(uploaded_file
+    if dataset_structure == "OpenSky airport arrivals":
+    if not is_opensky_arrival_format(raw_df):
+        st.warning(
+            "The uploaded file does not look like a standard OpenSky arrivals file. "
+            "The converter will still try to process it, but check the output carefully."
+        )
+
+    df = convert_opensky_arrivals_to_dashboard_format(raw_df)
+    df, cleaning_report = clean_aviation_data(df)
+
+    st.subheader("Converted OpenSky Arrival Data")
+    st.dataframe(df.head(20), use_container_width=True)
+
+else:
+    # existing raw-arrival or feature-table logic continues here
     st.sidebar.success("Uploaded dataset loaded.")
 
     st.subheader("Raw Uploaded Data Preview")
