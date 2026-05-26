@@ -14,7 +14,7 @@ from src.data_preprocessing import (
     clean_aviation_data,
     validate_required_columns,
 )
-
+from src.green_arrival_optimizer import compare_green_arrival_strategies
 
 st.set_page_config(
     page_title="ATCO Workload-Aware Green Arrival Dashboard",
@@ -142,6 +142,14 @@ n_synthetic_aircraft = st.sidebar.slider(
     step=10
 )
 
+separation_minutes = st.sidebar.slider(
+    "Minimum runway separation in minutes",
+    min_value=2.0,
+    max_value=6.0,
+    value=3.0,
+    step=0.5
+)
+
 scenario_duration = st.sidebar.slider(
     "Scenario duration in minutes",
     min_value=30,
@@ -241,6 +249,10 @@ if "estimated_arrival_time" in df.columns:
     df["estimated_arrival_time"] = pd.to_datetime(df["estimated_arrival_time"])
 # Create 3-minute traffic-complexity features
 features_df = create_time_window_features(df, window_minutes=3)
+green_strategy_df, green_schedules = compare_green_arrival_strategies(
+    df,
+    separation_minutes=separation_minutes
+)
 ml_model, ml_metrics, confusion_df, predictions_df, feature_importance_df = train_and_evaluate_model(
     features_df,
     model_name=model_choice
@@ -481,76 +493,102 @@ with tab2:
 # Tab 3
 # -----------------------------
 with tab3:
-    st.subheader("Green Arrival Strategy Comparison")
+    st.subheader("Green Arrival Optimization")
 
     st.markdown(
         """
-        This section compares simplified arrival-management strategies using proxy metrics
-        for delay, environmental efficiency, and controller workload risk.
+        This section compares simplified arrival sequencing strategies for environmental performance.
+        The current module focuses on delay, holding, extra-distance, level-flight, and emissions-proxy metrics.
         """
     )
 
-    st.dataframe(strategy_df, use_container_width=True)
+    st.subheader("Strategy-Level Results")
+    st.dataframe(green_strategy_df, use_container_width=True)
 
-    best_strategy = strategy_df.iloc[0]["strategy"]
-    best_score = strategy_df.iloc[0]["balanced_score"]
+    best_green_strategy = green_strategy_df.iloc[0]["strategy"]
+    best_green_score = green_strategy_df.iloc[0]["balanced_score"]
 
     st.success(
-        f"Best balanced strategy in this scenario: {best_strategy} "
-        f"with balanced score = {best_score:.3f}"
+        f"Best green-arrival strategy in this scenario: {best_green_strategy} "
+        f"with balanced score = {best_green_score:.3f}"
     )
 
     col_a, col_b = st.columns(2)
 
     with col_a:
-        fig_strategy = px.bar(
-            strategy_df,
+        fig_green_bar = px.bar(
+            green_strategy_df,
             x="strategy",
-            y=["delay_proxy", "emission_proxy", "workload_risk_proxy"],
+            y=["total_delay_min", "holding_proxy_min", "emission_proxy"],
             barmode="group",
-            title="Strategy Trade-Off Comparison"
+            title="Delay, Holding, and Emission Proxy by Strategy"
         )
-        fig_strategy.update_layout(
+        fig_green_bar.update_layout(
             template="plotly_dark",
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)"
         )
-        st.plotly_chart(fig_strategy, use_container_width=True)
+        st.plotly_chart(fig_green_bar, use_container_width=True)
 
     with col_b:
-        fig_pareto = px.scatter(
-            strategy_df,
+        fig_green_scatter = px.scatter(
+            green_strategy_df,
             x="emission_proxy",
-            y="delay_proxy",
-            size="workload_risk_proxy",
+            y="total_delay_min",
+            size="delayed_aircraft",
             color="strategy",
-            title="Delay vs Emission Proxy with Workload Risk"
+            title="Emission Proxy vs Total Delay"
         )
-        fig_pareto.update_layout(
+        fig_green_scatter.update_layout(
             template="plotly_dark",
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)"
         )
-        st.plotly_chart(fig_pareto, use_container_width=True)
+        st.plotly_chart(fig_green_scatter, use_container_width=True)
 
-    fig_workload_strategy = px.bar(
-        strategy_df,
-        x="strategy",
-        y="high_workload_windows_proxy",
-        title="Estimated High-Workload Windows by Strategy"
+    st.subheader("Aircraft-Level Schedule")
+
+    selected_schedule_strategy = st.selectbox(
+        "Select strategy schedule to inspect",
+        options=list(green_schedules.keys())
     )
-    fig_workload_strategy.update_layout(
+
+    st.dataframe(
+        green_schedules[selected_schedule_strategy][
+            [
+                "aircraft_id",
+                "eta_minutes",
+                "scheduled_landing_min",
+                "delay_min",
+                "holding_proxy_min",
+                "extra_distance_proxy_km",
+                "level_flight_proxy_min",
+                "emission_proxy",
+                "runway",
+            ]
+        ],
+        use_container_width=True
+    )
+
+    fig_schedule = px.line(
+        green_schedules[selected_schedule_strategy],
+        x="scheduled_landing_min",
+        y="delay_min",
+        markers=True,
+        hover_name="aircraft_id",
+        title=f"Aircraft Delay Profile: {selected_schedule_strategy}"
+    )
+    fig_schedule.update_layout(
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)"
     )
-    st.plotly_chart(fig_workload_strategy, use_container_width=True)
+    st.plotly_chart(fig_schedule, use_container_width=True)
 
     st.info(
         """
-        Interpretation: the green-only strategy may reduce the emission proxy,
-        but it can increase workload risk. The workload-aware green strategy is designed
-        to balance environmental performance with operational feasibility.
+        Interpretation: lower emission proxy is better, but a strategy must also maintain acceptable delay.
+        This first module evaluates green-arrival efficiency before adding workload impact in a later phase.
         """
     )
 # -----------------------------
