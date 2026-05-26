@@ -198,7 +198,7 @@ if data_mode == "Upload CSV":
     )
 
 if data_mode == "Upload CSV" and uploaded_file is not None:
-    raw_df = load_uploaded_data(uploaded_file
+    raw_df = load_uploaded_data(uploaded_file)
     if dataset_structure == "OpenSky airport arrivals":
     if not is_opensky_arrival_format(raw_df):
         st.warning(
