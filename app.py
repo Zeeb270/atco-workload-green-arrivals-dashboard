@@ -21,7 +21,13 @@ from src.opensky_adapter import (
 )
 from datetime import datetime, time
 from src.opensky_fetcher import fetch_opensky_arrivals
-
+from src.ui_components import (
+    inject_global_css,
+    hero,
+    kpi_card,
+    research_note,
+    warning_note,
+)
 
 st.set_page_config(
     page_title="ATCO Workload-Aware Green Arrival Dashboard",
@@ -32,89 +38,8 @@ st.set_page_config(
 # -----------------------------
 # Custom CSS
 # -----------------------------
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background: linear-gradient(135deg, #050816 0%, #0B1026 45%, #111827 100%);
-        color: #E5E7EB;
-    }
-
-    section[data-testid="stSidebar"] {
-        background-color: #050816;
-        border-right: 1px solid #1F2937;
-    }
-
-    .main-title {
-        font-size: 42px;
-        font-weight: 800;
-        color: #E5E7EB;
-        margin-bottom: 0px;
-    }
-
-    .subtitle {
-        font-size: 17px;
-        color: #9CA3AF;
-        margin-top: 0px;
-        margin-bottom: 25px;
-    }
-
-    .metric-card {
-        background: rgba(15, 23, 42, 0.92);
-        border: 1px solid rgba(56, 189, 248, 0.35);
-        padding: 22px;
-        border-radius: 18px;
-        box-shadow: 0px 0px 20px rgba(56, 189, 248, 0.08);
-    }
-
-    .metric-label {
-        font-size: 14px;
-        color: #9CA3AF;
-        margin-bottom: 8px;
-    }
-
-    .metric-value {
-        font-size: 30px;
-        font-weight: 800;
-        color: #38BDF8;
-    }
-
-    .section-card {
-        background: rgba(15, 23, 42, 0.78);
-        border: 1px solid rgba(148, 163, 184, 0.18);
-        padding: 20px;
-        border-radius: 18px;
-        margin-top: 12px;
-        margin-bottom: 18px;
-    }
-
-    .status-low {
-        color: #22C55E;
-        font-weight: 800;
-    }
-
-    .status-medium {
-        color: #FACC15;
-        font-weight: 800;
-    }
-
-    .status-high {
-        color: #EF4444;
-        font-weight: 800;
-    }
-
-    h1, h2, h3 {
-        color: #F9FAFB;
-    }
-
-    .stDataFrame {
-        border-radius: 14px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
+inject_global_css()
+hero()
 # -----------------------------
 # Header
 # -----------------------------
