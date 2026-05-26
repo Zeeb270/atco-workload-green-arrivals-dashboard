@@ -481,12 +481,12 @@ with col5:
 # -----------------------------
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
     [
-        "Traffic Overview",
-        "Workload Prediction",
-        "Green Arrival Strategy",
-        "Model Explainability",
-        "LLM Assistant",
-        "Scenario Report"
+        "Mission Control",
+        "Data & Scenario",
+        "Green Arrival Optimizer",
+        "ML Workload Intelligence",
+        "LLM Explanation Assistant",
+        "Research Report"
     ]
 )
 
@@ -494,133 +494,75 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
 # Tab 1
 # -----------------------------
 with tab1:
+    st.subheader("Mission Control")
 
-    st.subheader("Data Quality Report")
+    st.markdown(
+        """
+        This dashboard is a research prototype for evaluating environmentally efficient
+        arrival strategies at Stockholm Arlanda Airport.
 
-    st.json(cleaning_report)
+        The current Phase 1 focus is **green arrival optimization**: comparing arrival
+        sequencing strategies using delay, holding, extra-distance, and environmental-cost
+        proxy metrics.
 
-    present_cols, missing_cols = validate_required_columns(df)
+        Phase 2 extends the framework with **machine-learning-based workload intelligence**.
+        Phase 3 adds an **LLM-ready explanation and reporting layer**.
+        """
+    )
 
-    col_q1, col_q2 = st.columns(2)
+    best_green_strategy = green_strategy_df.iloc[0]["strategy"]
+    best_environmental_cost = green_strategy_df.iloc[0]["environmental_cost"]
+    best_delay = green_strategy_df.iloc[0]["total_delay_min"]
 
-    with col_q1:
-        st.success(f"Present standard columns: {len(present_cols)}")
-        st.write(present_cols)
+    col1, col2, col3, col4 = st.columns(4)
 
-    with col_q2:
-        if missing_cols:
-            st.warning(f"Missing standard columns: {len(missing_cols)}")
-            st.write(missing_cols)
-        else:
-            st.success("No required standard columns are missing.")
-    st.subheader("Arrival Traffic Overview")
+    col1.metric("Aircraft Analysed", n_aircraft)
+    col2.metric("Best Green Strategy", best_green_strategy)
+    col3.metric("Environmental Cost", f"{best_environmental_cost:,.0f}")
+    col4.metric("Total Delay", f"{best_delay:,.1f} min")
 
-    left, right = st.columns([1.1, 1])
+    st.markdown("### Research Workflow")
 
-    with left:
-        fig_radar = px.scatter_polar(
-            df,
-            r="distance_to_airport_km",
-            theta="route_angle_deg",
-            color="runway",
-            size="speed_kt",
-            hover_name="aircraft_id",
-            title="Radar-Style Arrival Distribution"
-        )
-        fig_radar.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)"
-        )
-        st.plotly_chart(fig_radar, use_container_width=True)
+    st.markdown(
+        """
+        ```text
+        Real or simulated arrival data
+                ↓
+        Arrival sequencing strategy comparison
+                ↓
+        Environmental proxy evaluation
+                ↓
+        ML workload-risk extension
+                ↓
+        LLM-assisted explanation and reporting
+        ```
+        """
+    )
 
-    with right:
-        fig_altitude = px.scatter(
-            df,
-            x="distance_to_airport_km",
-            y="altitude_ft",
-            size="speed_kt",
-            color="runway",
-            hover_name="aircraft_id",
-            title="Altitude Profile by Distance"
-        )
-        fig_altitude.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)"
-        )
-        st.plotly_chart(fig_altitude, use_container_width=True)
-
-    if show_raw_data:
-        st.subheader("Raw Arrival Dataset")
-        st.dataframe(df, use_container_width=True)
-
+    st.info(
+        "Current environmental values are proxy metrics for strategy comparison, "
+        "not certified fuel-burn or CO₂ estimates."
+    )
 # -----------------------------
 # Tab 2
 # -----------------------------
 with tab2:
-    st.subheader("Machine-Learning Workload Prediction")
+    st.subheader("Data & Scenario")
 
     st.markdown(
-        f"""
-        <div class="section-card">
-        Current model: <b>{model_choice}</b><br>
-        Estimated workload score: <b>{workload_score:.2f}</b><br>
-        Predicted workload level: <span class="{workload_class}">{workload_label}</span>
-        </div>
-        """,
-        unsafe_allow_html=True
+        """
+        This section shows the loaded dataset, cleaning diagnostics, and scenario setup.
+        """
     )
 
-    st.subheader("3-Minute Traffic-Complexity Features")
-    st.dataframe(features_df, use_container_width=True)
+    with st.expander("Show data quality report"):
+        st.json(cleaning_report)
 
-    fig_window_workload = px.line(
-        features_df,
-        x="time_window",
-        y="complexity_score",
-        markers=True,
-        color="workload_label",
-        title="Traffic Complexity Score by 3-Minute Window"
-    )
-    fig_window_workload.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)"
-    )
-    st.plotly_chart(fig_window_workload, use_container_width=True)
+    with st.expander("Show processed arrival data"):
+        st.dataframe(df, use_container_width=True)
 
-    st.subheader("Model Performance")
-
-    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-
-    metric_col1.metric("Accuracy", f"{ml_metrics['accuracy']:.3f}")
-    metric_col2.metric("Macro Precision", f"{ml_metrics['macro_precision']:.3f}")
-    metric_col3.metric("Macro Recall", f"{ml_metrics['macro_recall']:.3f}")
-    metric_col4.metric("Macro F1", f"{ml_metrics['macro_f1']:.3f}")
-
-    st.caption(ml_metrics["evaluation_mode"])
-
-    st.subheader("Predictions by 3-Minute Window")
-    st.dataframe(predictions_df, use_container_width=True)
-
-    fig_ml_workload = px.line(
-        predictions_df,
-        x="time_window",
-        y="complexity_score",
-        markers=True,
-        color="ml_predicted_workload",
-        title="ML-Predicted Workload by 3-Minute Window"
-    )
-    fig_ml_workload.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)"
-    )
-    st.plotly_chart(fig_ml_workload, use_container_width=True)
-
-    st.subheader("Confusion Matrix")
-    st.dataframe(confusion_df, use_container_width=True)
+    with st.expander("Show engineered traffic-complexity features"):
+        st.dataframe(features_df, use_container_width=True)
 # -----------------------------
 # Tab 3
 # -----------------------------
@@ -732,6 +674,10 @@ with tab3:
 # Tab 4
 # -----------------------------
 with tab4:
+    st.info(
+    "Phase 2 extension: this module evaluates workload-risk prediction using "
+    "traffic-complexity features. It is not the main green-optimization module yet."
+    )
     st.subheader("Model Explainability")
 
     st.markdown(
@@ -797,6 +743,9 @@ with tab4:
 # Tab 5
 # -----------------------------
 with tab5:
+    st.info(
+    "This assistant explains dashboard outputs. It does not make operational ATC decisions."
+    )
     st.subheader("LLM Research Assistant")
 
     st.markdown(
