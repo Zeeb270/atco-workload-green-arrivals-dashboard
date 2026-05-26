@@ -1,3 +1,4 @@
+import time
 import requests
 import pandas as pd
 
@@ -7,25 +8,13 @@ def fetch_opensky_arrivals(
     begin_unix=None,
     end_unix=None,
     access_token=None,
+    max_retries=3,
 ):
     """
     Fetch airport arrivals from the OpenSky REST API.
 
-    Parameters
-    ----------
-    airport : str
-        ICAO airport code, e.g. ESSA for Stockholm Arlanda.
-    begin_unix : int
-        Start time as Unix timestamp.
-    end_unix : int
-        End time as Unix timestamp.
-    access_token : str or None
-        Optional OpenSky OAuth2 bearer token.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Raw OpenSky arrivals.
+    This function uses retries because OpenSky public API requests can timeout
+    or be throttled, especially from cloud-hosted apps.
     """
 
     if begin_unix is None or end_unix is None:
@@ -47,29 +36,41 @@ def fetch_opensky_arrivals(
         "end": int(end_unix),
     }
 
-    headers = {}
+    headers = {
+        "User-Agent": "atco-workload-green-arrivals-dashboard/0.1"
+    }
 
     if access_token:
         headers["Authorization"] = f"Bearer {access_token}"
 
-    response = requests.get(
-        url,
-        params=params,
-        headers=headers,
-        timeout=60,
-    )
+    last_error = None
 
-    if response.status_code == 404:
-        return pd.DataFrame()
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = requests.get(
+                url,
+                params=params,
+                headers=headers,
+                timeout=60,
+            )
 
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"OpenSky request failed with status {response.status_code}: {response.text}"
-        )
+            if response.status_code == 404:
+                return pd.DataFrame()
 
-    data = response.json()
+            if response.status_code != 200:
+                raise RuntimeError(
+                    f"OpenSky request failed with status {response.status_code}: {response.text}"
+                )
 
-    if not data:
-        return pd.DataFrame()
+            data = response.json()
 
-    return pd.DataFrame(data)
+            if not data:
+                return pd.DataFrame()
+
+            return pd.DataFrame(data)
+
+        except Exception as error:
+            last_error = error
+            time.sleep(2 * attempt)
+
+    raise RuntimeError(f"OpenSky request failed after {max_retries} attempts: {last_error}")
