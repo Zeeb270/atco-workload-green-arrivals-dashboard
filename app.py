@@ -519,7 +519,7 @@ with tab3:
         fig_green_bar = px.bar(
             green_strategy_df,
             x="strategy",
-            y=["total_delay_min", "holding_proxy_min", "emission_proxy"],
+            y=["total_delay_min", "holding_proxy_min", "environmental_cost"],
             barmode="group",
             title="Delay, Holding, and Emission Proxy by Strategy"
         )
@@ -533,11 +533,11 @@ with tab3:
     with col_b:
         fig_green_scatter = px.scatter(
             green_strategy_df,
-            x="emission_proxy",
+            x="environmental_cost",
             y="total_delay_min",
             size="delayed_aircraft",
             color="strategy",
-            title="Emission Proxy vs Total Delay"
+            title="Environment Cost vs Total Delay"
         )
         fig_green_scatter.update_layout(
             template="plotly_dark",
@@ -564,6 +564,11 @@ with tab3:
                 "extra_distance_proxy_km",
                 "level_flight_proxy_min",
                 "emission_proxy",
+                "fuel_burn_proxy",
+                "co2_proxy",
+                "environmental_cost",
+                "descent_inefficiency_score",
+                "speed_inefficiency_score",
                 "runway",
             ]
         ],
