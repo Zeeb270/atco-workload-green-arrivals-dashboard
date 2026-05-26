@@ -56,7 +56,7 @@ def fetch_opensky_arrivals(
         url,
         params=params,
         headers=headers,
-        timeout=30,
+        timeout=60,
     )
 
     if response.status_code == 404:
