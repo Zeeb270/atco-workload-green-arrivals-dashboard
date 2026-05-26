@@ -191,67 +191,73 @@ show_raw_data = st.sidebar.checkbox("Show raw data", value=True)
 # -----------------------------
 uploaded_file = None
 
-if data_mode == "Upload CSV":
+if data_mode == "Upload file":
     uploaded_file = st.sidebar.file_uploader(
         "Upload arrival traffic file",
         type=["csv", "xlsx", "xls", "json"]
     )
 
-if data_mode == "Upload CSV" and uploaded_file is not None:
+if data_mode == "Upload file" and uploaded_file is not None:
     raw_df = load_uploaded_data(uploaded_file)
-    if dataset_structure == "OpenSky airport arrivals":
-    if not is_opensky_arrival_format(raw_df):
-        st.warning(
-            "The uploaded file does not look like a standard OpenSky arrivals file. "
-            "The converter will still try to process it, but check the output carefully."
-        )
-
-    df = convert_opensky_arrivals_to_dashboard_format(raw_df)
-    df, cleaning_report = clean_aviation_data(df)
-
-    st.subheader("Converted OpenSky Arrival Data")
-    st.dataframe(df.head(20), use_container_width=True)
-
-else:
-    # existing raw-arrival or feature-table logic continues here
     st.sidebar.success("Uploaded dataset loaded.")
 
     st.subheader("Raw Uploaded Data Preview")
     st.dataframe(raw_df.head(20), use_container_width=True)
 
-    suggested_mapping = suggest_column_mapping(raw_df)
+    if dataset_structure == "OpenSky airport arrivals":
+        if not is_opensky_arrival_format(raw_df):
+            st.warning(
+                "The uploaded file does not look like a standard OpenSky arrivals file. "
+                "The converter will still try to process it, but check the output carefully."
+            )
 
-    st.subheader("Column Mapping")
+        df = convert_opensky_arrivals_to_dashboard_format(raw_df)
+        df, cleaning_report = clean_aviation_data(df)
 
-    column_mapping = {}
+        st.subheader("Converted OpenSky Arrival Data")
+        st.dataframe(df.head(20), use_container_width=True)
 
-    for standard_col in [
-        "aircraft_id",
-        "timestamp",
-        "distance_to_airport_km",
-        "altitude_ft",
-        "speed_kt",
-        "estimated_arrival_time",
-        "route_angle_deg",
-        "runway",
-    ]:
-        options = ["Not available"] + list(raw_df.columns)
-
-        suggested_value = suggested_mapping.get(standard_col)
-
-        if suggested_value in options:
-            default_index = options.index(suggested_value)
-        else:
-            default_index = 0
-
-        column_mapping[standard_col] = st.selectbox(
-            f"Map column for: {standard_col}",
-            options=options,
-            index=default_index
+    elif dataset_structure == "Preprocessed ML feature table":
+        st.subheader("Preprocessed ML Feature Table Mode")
+        st.warning(
+            "This mode is under development. For now, use Raw aircraft arrival data or OpenSky airport arrivals."
         )
+        st.stop()
 
-    mapped_df = apply_column_mapping(raw_df, column_mapping)
-    df, cleaning_report = clean_aviation_data(mapped_df)
+    else:
+        suggested_mapping = suggest_column_mapping(raw_df)
+
+        st.subheader("Column Mapping")
+
+        column_mapping = {}
+
+        for standard_col in [
+            "aircraft_id",
+            "timestamp",
+            "distance_to_airport_km",
+            "altitude_ft",
+            "speed_kt",
+            "estimated_arrival_time",
+            "route_angle_deg",
+            "runway",
+        ]:
+            options = ["Not available"] + list(raw_df.columns)
+
+            suggested_value = suggested_mapping.get(standard_col)
+
+            if suggested_value in options:
+                default_index = options.index(suggested_value)
+            else:
+                default_index = 0
+
+            column_mapping[standard_col] = st.selectbox(
+                f"Map column for: {standard_col}",
+                options=options,
+                index=default_index
+            )
+
+        mapped_df = apply_column_mapping(raw_df, column_mapping)
+        df, cleaning_report = clean_aviation_data(mapped_df)
 
 elif data_mode == "Generate synthetic scenario":
     raw_df = generate_synthetic_arrivals(
@@ -275,17 +281,22 @@ if "timestamp" in df.columns:
 
 if "estimated_arrival_time" in df.columns:
     df["estimated_arrival_time"] = pd.to_datetime(df["estimated_arrival_time"])
+
 # Create 3-minute traffic-complexity features
 features_df = create_time_window_features(df, window_minutes=3)
+
 green_strategy_df, green_schedules = compare_green_arrival_strategies(
     df,
     separation_minutes=separation_minutes
 )
+
 ml_model, ml_metrics, confusion_df, predictions_df, feature_importance_df = train_and_evaluate_model(
     features_df,
     model_name=model_choice
 )
+
 model_comparison_df = compare_models(features_df)
+
 strategy_df = compare_arrival_strategies(features_df)
 # -----------------------------
 # Basic derived metrics
