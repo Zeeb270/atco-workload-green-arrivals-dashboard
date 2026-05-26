@@ -162,9 +162,24 @@ if data_mode == "Fetch OpenSky ESSA arrivals":
         value=pd.Timestamp.today().date() - pd.Timedelta(days=7)
     )
 
+    opensky_start_time = st.sidebar.time_input(
+        "Start time",
+        value=time(6, 0)
+    )
+
     opensky_end_date = st.sidebar.date_input(
         "End date",
-        value=pd.Timestamp.today().date() - pd.Timedelta(days=6)
+        value=pd.Timestamp.today().date() - pd.Timedelta(days=7)
+    )
+
+    opensky_end_time = st.sidebar.time_input(
+        "End time",
+        value=time(12, 0)
+    )
+
+    st.sidebar.caption(
+        "Use a small historical interval first, for example 06:00–12:00. "
+        "OpenSky direct fetching may timeout for large intervals."
     )
 
     st.sidebar.caption(
@@ -287,8 +302,8 @@ if data_mode == "Upload file" and uploaded_file is not None:
         mapped_df = apply_column_mapping(raw_df, column_mapping)
         df, cleaning_report = clean_aviation_data(mapped_df)
 elif data_mode == "Fetch OpenSky ESSA arrivals":
-    begin_dt = datetime.combine(opensky_start_date, time.min)
-    end_dt = datetime.combine(opensky_end_date, time.min)
+    begin_dt = datetime.combine(opensky_start_date, opensky_start_time)
+    end_dt = datetime.combine(opensky_end_date, opensky_end_time)
 
     begin_unix = int(pd.Timestamp(begin_dt).timestamp())
     end_unix = int(pd.Timestamp(end_dt).timestamp())
